@@ -1,5 +1,6 @@
 "use server";
 
+import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -11,6 +12,16 @@ function field(formData: FormData, name: string) {
 
 function authRedirect(path: string, type: "error" | "message", value: string): never {
   redirect(`${path}?${type}=${encodeURIComponent(value)}`);
+}
+
+async function getRequestOrigin() {
+  const headerStore = await headers();
+
+  return (
+    headerStore.get("origin") ??
+    headerStore.get("x-forwarded-host")?.replace(/^/, "https://") ??
+    "https://creator-os-ten-phi.vercel.app"
+  );
 }
 
 function getSignupErrorMessage(message: string) {
@@ -35,6 +46,24 @@ function getSignupErrorMessage(message: string) {
   return "We could not create your account right now. Please check your details and try again.";
 }
 
+function getGoogleSignInErrorMessage(message: string) {
+  const normalizedMessage = message.toLowerCase();
+
+  if (
+    normalizedMessage.includes("provider") ||
+    normalizedMessage.includes("google") ||
+    normalizedMessage.includes("oauth")
+  ) {
+    console.error("Google Sign-In provider is not ready:", message);
+
+    return "Google Sign-In is not enabled yet. Please enable the Google provider in Supabase Auth.";
+  }
+
+  console.error("Google Sign-In error:", message);
+
+  return "Google Sign-In could not be started. Please try again.";
+}
+
 export async function login(formData: FormData) {
   const email = field(formData, "email");
   const password = field(formData, "password");
@@ -52,6 +81,28 @@ export async function login(formData: FormData) {
 
   revalidatePath("/", "layout");
   redirect("/dashboard");
+}
+
+export async function signInWithGoogle(formData: FormData) {
+  const source = field(formData, "source") === "signup" ? "/signup" : "/login";
+  const origin = await getRequestOrigin();
+  const supabase = await createClient();
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: {
+      redirectTo: `${origin}/auth/callback?next=/dashboard`,
+    },
+  });
+
+  if (error) {
+    authRedirect(source, "error", getGoogleSignInErrorMessage(error.message));
+  }
+
+  if (!data.url) {
+    authRedirect(source, "error", "Google Sign-In could not be started. Please try again.");
+  }
+
+  redirect(data.url);
 }
 
 export async function signup(formData: FormData) {

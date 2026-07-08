@@ -3,6 +3,7 @@ import Link from "next/link";
 import { login } from "@/app/(auth)/actions";
 import { AuthNotice } from "@/components/auth/auth-notice";
 import { AuthShell } from "@/components/auth/auth-shell";
+import { GoogleSignIn } from "@/components/auth/google-sign-in";
 import { SubmitButton } from "@/components/auth/submit-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -43,6 +44,12 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
         </div>
         <SubmitButton pendingText="Signing in...">Log in</SubmitButton>
       </form>
+      <div className="my-5 flex items-center gap-3">
+        <div className="h-px flex-1 bg-white/10" />
+        <span className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-600">or</span>
+        <div className="h-px flex-1 bg-white/10" />
+      </div>
+      <GoogleSignIn source="login" />
     </AuthShell>
   );
 }
