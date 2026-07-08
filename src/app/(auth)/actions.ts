@@ -13,6 +13,28 @@ function authRedirect(path: string, type: "error" | "message", value: string): n
   redirect(`${path}?${type}=${encodeURIComponent(value)}`);
 }
 
+function getSignupErrorMessage(message: string) {
+  const normalizedMessage = message.toLowerCase();
+
+  if (normalizedMessage.includes("email rate limit")) {
+    console.error("Supabase signup rate limit reached.");
+
+    return "Signup email limit reached. Please wait for Supabase's email limit to reset, then try again. If you already created an account, try logging in.";
+  }
+
+  if (normalizedMessage.includes("email address") && normalizedMessage.includes("invalid")) {
+    return "Enter a valid email address and try again.";
+  }
+
+  if (normalizedMessage.includes("already registered")) {
+    return "An account already exists for this email. Try logging in instead.";
+  }
+
+  console.error("Supabase signup error:", message);
+
+  return "We could not create your account right now. Please check your details and try again.";
+}
+
 export async function login(formData: FormData) {
   const email = field(formData, "email");
   const password = field(formData, "password");
@@ -57,7 +79,7 @@ export async function signup(formData: FormData) {
   });
 
   if (error) {
-    authRedirect("/signup", "error", error.message);
+    authRedirect("/signup", "error", getSignupErrorMessage(error.message));
   }
 
   if (data.session && data.user) {

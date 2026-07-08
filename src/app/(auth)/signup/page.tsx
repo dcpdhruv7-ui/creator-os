@@ -36,6 +36,10 @@ export default async function SignupPage({ searchParams }: SignupPageProps) {
           <Input id="password" name="password" required type="password" />
         </div>
         <SubmitButton pendingText="Creating account...">Sign up</SubmitButton>
+        <p className="text-sm leading-6 text-zinc-500">
+          For testing, if signup email is rate-limited, wait and try again or use an existing
+          account.
+        </p>
       </form>
     </AuthShell>
   );
