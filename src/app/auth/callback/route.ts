@@ -14,6 +14,16 @@ function getOAuthErrorMessage(message: string | null) {
   const normalizedMessage = message?.toLowerCase() ?? "";
 
   if (
+    normalizedMessage.includes("access_denied") ||
+    normalizedMessage.includes("cancel") ||
+    normalizedMessage.includes("denied")
+  ) {
+    return "Google Sign-In was canceled. You can try again anytime.";
+  }
+
+  if (
+    normalizedMessage.includes("unsupported provider") ||
+    normalizedMessage.includes("not enabled") ||
     normalizedMessage.includes("provider") ||
     normalizedMessage.includes("google") ||
     normalizedMessage.includes("oauth")

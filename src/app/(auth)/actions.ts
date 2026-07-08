@@ -50,6 +50,8 @@ function getGoogleSignInErrorMessage(message: string) {
   const normalizedMessage = message.toLowerCase();
 
   if (
+    normalizedMessage.includes("unsupported provider") ||
+    normalizedMessage.includes("not enabled") ||
     normalizedMessage.includes("provider") ||
     normalizedMessage.includes("google") ||
     normalizedMessage.includes("oauth")
@@ -62,6 +64,27 @@ function getGoogleSignInErrorMessage(message: string) {
   console.error("Google Sign-In error:", message);
 
   return "Google Sign-In could not be started. Please try again.";
+}
+
+async function getOAuthStartError(url: string) {
+  try {
+    const response = await fetch(url, {
+      cache: "no-store",
+      redirect: "manual",
+    });
+
+    if (response.status < 400) {
+      return null;
+    }
+
+    const text = await response.text();
+
+    return getGoogleSignInErrorMessage(text);
+  } catch (error) {
+    console.error("Google Sign-In provider preflight failed:", error);
+
+    return null;
+  }
 }
 
 export async function login(formData: FormData) {
@@ -100,6 +123,12 @@ export async function signInWithGoogle(formData: FormData) {
 
   if (!data.url) {
     authRedirect(source, "error", "Google Sign-In could not be started. Please try again.");
+  }
+
+  const startError = await getOAuthStartError(data.url);
+
+  if (startError) {
+    authRedirect(source, "error", startError);
   }
 
   redirect(data.url);
