@@ -2,9 +2,10 @@
 
 import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
-import { Check, LoaderCircle, Save } from "lucide-react";
+import { Check, Info, LoaderCircle, Save, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -56,9 +57,17 @@ export function NicheOnboardingForm({
 }: NicheOnboardingFormProps) {
   const [selectedNicheId, setSelectedNicheId] = useState(initialNicheId);
   const [selectedSubNicheId, setSelectedSubNicheId] = useState(initialSubNicheId);
+  const [subNicheQuery, setSubNicheQuery] = useState("");
   const [state, formAction] = useActionState(saveNiche, initialState);
   const availableSubNiches = subNiches.filter(
     (subNiche) => subNiche.niche_id === selectedNicheId,
+  );
+  const normalizedQuery = subNicheQuery.trim().toLowerCase();
+  const filteredSubNiches = availableSubNiches.filter((subNiche) =>
+    `${subNiche.name} ${subNiche.description ?? ""}`.toLowerCase().includes(normalizedQuery),
+  );
+  const hasTrendBasedCategories = availableSubNiches.some((subNiche) =>
+    subNiche.name.toLowerCase().includes("trend"),
   );
 
   return (
@@ -88,6 +97,7 @@ export function NicheOnboardingForm({
                   onChange={() => {
                     setSelectedNicheId(niche.id);
                     setSelectedSubNicheId("");
+                    setSubNicheQuery("");
                   }}
                   type="radio"
                   value={niche.id}
@@ -122,40 +132,69 @@ export function NicheOnboardingForm({
           </p>
 
           {availableSubNiches.length > 0 ? (
-            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {availableSubNiches.map((subNiche) => {
-                const selected = selectedSubNicheId === subNiche.id;
+            <div className="mt-4">
+              <div className="relative max-w-md">
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-zinc-500" />
+                <Input
+                  aria-label="Search sub-niches"
+                  className="pl-9"
+                  onChange={(event) => setSubNicheQuery(event.target.value)}
+                  placeholder="Search sub-niches"
+                  type="search"
+                  value={subNicheQuery}
+                />
+              </div>
 
-                return (
-                  <label
-                    className={cn(
-                      "cursor-pointer rounded-lg border px-4 py-3 transition-colors hover:border-white/25",
-                      selected
-                        ? "border-emerald-300/70 bg-emerald-400/[0.08]"
-                        : "border-white/10 bg-white/[0.025]",
-                    )}
-                    key={subNiche.id}
-                  >
-                    <input
-                      checked={selected}
-                      className="sr-only"
-                      name="sub_niche_id"
-                      onChange={() => setSelectedSubNicheId(subNiche.id)}
-                      type="radio"
-                      value={subNiche.id}
-                    />
-                    <span className="flex items-center justify-between gap-3">
-                      <span className="text-sm font-medium text-zinc-100">{subNiche.name}</span>
-                      {selected ? <Check className="size-4 text-emerald-300" /> : null}
-                    </span>
-                    {subNiche.description ? (
-                      <span className="mt-2 block text-xs leading-5 text-zinc-500">
-                        {subNiche.description}
-                      </span>
-                    ) : null}
-                  </label>
-                );
-              })}
+              {hasTrendBasedCategories ? (
+                <div className="mt-3 flex max-w-2xl items-start gap-2 text-xs leading-5 text-zinc-500">
+                  <Info className="mt-0.5 size-3.5 shrink-0 text-emerald-300" />
+                  <p>Trend-based categories are planning categories, not live trend data yet.</p>
+                </div>
+              ) : null}
+
+              {filteredSubNiches.length > 0 ? (
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {filteredSubNiches.map((subNiche) => {
+                    const selected = selectedSubNicheId === subNiche.id;
+
+                    return (
+                      <label
+                        className={cn(
+                          "min-h-28 cursor-pointer rounded-lg border px-4 py-3 transition-colors hover:border-white/25",
+                          selected
+                            ? "border-emerald-300/70 bg-emerald-400/[0.08]"
+                            : "border-white/10 bg-white/[0.025]",
+                        )}
+                        key={subNiche.id}
+                      >
+                        <input
+                          checked={selected}
+                          className="sr-only"
+                          name="sub_niche_id"
+                          onChange={() => setSelectedSubNicheId(subNiche.id)}
+                          type="radio"
+                          value={subNiche.id}
+                        />
+                        <span className="flex items-center justify-between gap-3">
+                          <span className="text-sm font-medium text-zinc-100">
+                            {subNiche.name}
+                          </span>
+                          {selected ? <Check className="size-4 text-emerald-300" /> : null}
+                        </span>
+                        {subNiche.description ? (
+                          <span className="mt-2 block text-xs leading-5 text-zinc-500">
+                            {subNiche.description}
+                          </span>
+                        ) : null}
+                      </label>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="mt-4 rounded-lg border border-white/10 bg-white/[0.03] p-4 text-sm text-zinc-400">
+                  No sub-niches match your search.
+                </div>
+              )}
             </div>
           ) : (
             <div className="mt-4 rounded-lg border border-amber-300/20 bg-amber-300/[0.06] p-4 text-sm text-amber-100">
