@@ -15,11 +15,6 @@ import { createClient } from "@/lib/supabase/server";
 
 const dashboardCards = [
   {
-    title: "Ideas",
-    description: "Generated content ideas and hooks will live in this workspace.",
-    icon: Lightbulb,
-  },
-  {
     title: "Calendar",
     description: "Your weekly content plan will be organized here.",
     icon: CalendarDays,
@@ -41,7 +36,7 @@ export default async function DashboardPage() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  const [{ data: profile }, { data: creatorProfile }] = await Promise.all([
+  const [{ data: profile }, { data: creatorProfile }, ideasResult] = await Promise.all([
     supabase.from("profiles").select("primary_niche").eq("id", user!.id).maybeSingle(),
     supabase
       .from("user_creator_profiles")
@@ -50,12 +45,20 @@ export default async function DashboardPage() {
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
+    supabase
+      .from("content_ideas")
+      .select("title", { count: "exact" })
+      .eq("user_id", user!.id)
+      .order("created_at", { ascending: false })
+      .limit(1),
   ]);
   const niche = creatorProfile?.niche ?? profile?.primary_niche ?? null;
   const subNiche = creatorProfile?.sub_niche ?? null;
   const inspirationCount = Array.isArray(creatorProfile?.selected_creators)
     ? creatorProfile.selected_creators.length
     : 0;
+  const ideaCount = ideasResult.count ?? 0;
+  const latestIdea = ideasResult.data?.[0]?.title ?? null;
 
   return (
     <section className="mx-auto w-full max-w-6xl">
@@ -131,6 +134,31 @@ export default async function DashboardPage() {
             >
               <Link href={niche ? "/creators" : "/niche"}>
                 {inspirationCount > 0 ? "Edit inspirations" : "Choose inspirations"}
+                <ArrowRight />
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card className="min-h-48 border-emerald-300/20">
+          <CardHeader>
+            <div className="mb-3 flex size-10 items-center justify-center rounded-md border border-emerald-300/20 bg-emerald-400/10 text-emerald-200">
+              <Lightbulb className="size-5" />
+            </div>
+            <CardTitle>Ideas</CardTitle>
+            <CardDescription>
+              <span className="block text-base font-medium text-zinc-100">
+                {ideaCount} saved idea{ideaCount === 1 ? "" : "s"}
+              </span>
+              <span className="mt-1 block">
+                {latestIdea ?? "Generate your first set of ready-to-shoot ideas."}
+              </span>
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild size="sm" variant={ideaCount > 0 ? "secondary" : "default"}>
+              <Link href={inspirationCount > 0 ? "/ideas" : "/creators"}>
+                Generate ideas
                 <ArrowRight />
               </Link>
             </Button>
