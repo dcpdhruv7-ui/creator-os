@@ -15,11 +15,6 @@ import { createClient } from "@/lib/supabase/server";
 
 const dashboardCards = [
   {
-    title: "Creator Profile",
-    description: "Tone, energy, editing style, and growth angle are coming next.",
-    icon: UserRoundCog,
-  },
-  {
     title: "Ideas",
     description: "Generated content ideas and hooks will live in this workspace.",
     icon: Lightbulb,
@@ -50,7 +45,7 @@ export default async function DashboardPage() {
     supabase.from("profiles").select("primary_niche").eq("id", user!.id).maybeSingle(),
     supabase
       .from("user_creator_profiles")
-      .select("niche, sub_niche")
+      .select("niche, sub_niche, selected_creators, energy_style, content_tone")
       .eq("user_id", user!.id)
       .order("updated_at", { ascending: false })
       .limit(1)
@@ -58,6 +53,9 @@ export default async function DashboardPage() {
   ]);
   const niche = creatorProfile?.niche ?? profile?.primary_niche ?? null;
   const subNiche = creatorProfile?.sub_niche ?? null;
+  const inspirationCount = Array.isArray(creatorProfile?.selected_creators)
+    ? creatorProfile.selected_creators.length
+    : 0;
 
   return (
     <section className="mx-auto w-full max-w-6xl">
@@ -95,6 +93,44 @@ export default async function DashboardPage() {
             <Button asChild size="sm" variant={niche ? "secondary" : "default"}>
               <Link href="/niche">
                 {niche ? "Edit niche" : "Set niche"}
+                <ArrowRight />
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card className="min-h-48 border-emerald-300/20">
+          <CardHeader>
+            <div className="mb-3 flex size-10 items-center justify-center rounded-md border border-emerald-300/20 bg-emerald-400/10 text-emerald-200">
+              <UserRoundCog className="size-5" />
+            </div>
+            <CardTitle>Creator Profile</CardTitle>
+            {inspirationCount > 0 ? (
+              <CardDescription>
+                <span className="block text-base font-medium text-zinc-100">
+                  {creatorProfile?.content_tone ?? "Your creator style"}
+                </span>
+                <span className="mt-1 block">
+                  {creatorProfile?.energy_style
+                    ? `${creatorProfile.energy_style} / `
+                    : ""}
+                  {inspirationCount} inspiration{inspirationCount === 1 ? "" : "s"} selected
+                </span>
+              </CardDescription>
+            ) : (
+              <CardDescription>
+                Choose inspiration styles to shape your Creator OS profile.
+              </CardDescription>
+            )}
+          </CardHeader>
+          <CardContent>
+            <Button
+              asChild
+              size="sm"
+              variant={inspirationCount > 0 ? "secondary" : "default"}
+            >
+              <Link href={niche ? "/creators" : "/niche"}>
+                {inspirationCount > 0 ? "Edit inspirations" : "Choose inspirations"}
                 <ArrowRight />
               </Link>
             </Button>
