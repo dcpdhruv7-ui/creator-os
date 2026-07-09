@@ -58,6 +58,7 @@ export function NicheOnboardingForm({
   const [selectedNicheId, setSelectedNicheId] = useState(initialNicheId);
   const [selectedSubNicheId, setSelectedSubNicheId] = useState(initialSubNicheId);
   const [subNicheQuery, setSubNicheQuery] = useState("");
+  const [creatorGoal, setCreatorGoal] = useState(initialCreatorGoal);
   const [state, formAction] = useActionState(saveNiche, initialState);
   const availableSubNiches = subNiches.filter(
     (subNiche) => subNiche.niche_id === selectedNicheId,
@@ -66,15 +67,17 @@ export function NicheOnboardingForm({
   const filteredSubNiches = availableSubNiches.filter((subNiche) =>
     `${subNiche.name} ${subNiche.description ?? ""}`.toLowerCase().includes(normalizedQuery),
   );
-  const hasTrendBasedCategories = availableSubNiches.some((subNiche) =>
-    subNiche.name.toLowerCase().includes("trend"),
-  );
+  const selectedNiche = niches.find((niche) => niche.id === selectedNicheId);
+  const selectedSubNiche = subNiches.find((subNiche) => subNiche.id === selectedSubNicheId);
+  const isTrendingDirection = selectedSubNiche?.name.toLowerCase().includes("trending");
 
   return (
     <form action={formAction} className="space-y-8">
       <fieldset>
-        <legend className="text-base font-semibold text-white">1. Pick your content world</legend>
-        <p className="mt-1 text-sm text-zinc-400">Choose the niche that best anchors your content.</p>
+        <legend className="text-base font-semibold text-white">1. Choose a niche</legend>
+        <p className="mt-1 text-sm text-zinc-400">
+          Pick the main category your content belongs to.
+        </p>
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {niches.map((niche) => {
@@ -126,9 +129,11 @@ export function NicheOnboardingForm({
 
       {selectedNicheId ? (
         <fieldset>
-          <legend className="text-base font-semibold text-white">2. Refine your direction</legend>
+          <legend className="text-base font-semibold text-white">
+            2. Choose your content direction
+          </legend>
           <p className="mt-1 text-sm text-zinc-400">
-            Select one sub-niche or style to make your starting point more specific.
+            Select the style or sub-niche you want to focus on first.
           </p>
 
           {availableSubNiches.length > 0 ? (
@@ -145,10 +150,10 @@ export function NicheOnboardingForm({
                 />
               </div>
 
-              {hasTrendBasedCategories ? (
+              {isTrendingDirection ? (
                 <div className="mt-3 flex max-w-2xl items-start gap-2 text-xs leading-5 text-zinc-500">
                   <Info className="mt-0.5 size-3.5 shrink-0 text-emerald-300" />
-                  <p>Trend-based categories are planning categories, not live trend data yet.</p>
+                  <p>Trending categories are planning categories, not live trend data yet.</p>
                 </div>
               ) : null}
 
@@ -208,15 +213,43 @@ export function NicheOnboardingForm({
         <Label htmlFor="creator_goal">Creator goal or niche note (optional)</Label>
         <Textarea
           className="mt-2"
-          defaultValue={initialCreatorGoal}
           id="creator_goal"
           maxLength={500}
           name="creator_goal"
-          placeholder="Example: Help busy beginners build sustainable fitness habits."
+          onChange={(event) => setCreatorGoal(event.target.value)}
+          placeholder="Example: I want to build dance content around trending reels, performance, and tutorials."
+          value={creatorGoal}
         />
-        <p className="mt-2 text-xs text-zinc-500">
-          Add a short direction for the audience or outcome you want to focus on.
-        </p>
+      </div>
+
+      <div className="grid border-y border-white/10 py-5 md:grid-cols-2 md:gap-8">
+        <section className="pb-5 md:pb-0">
+          <h3 className="text-sm font-semibold text-white">Your Creator OS foundation</h3>
+          <dl className="mt-3 space-y-2 text-sm">
+            <div className="flex gap-2">
+              <dt className="w-20 shrink-0 text-zinc-500">Niche</dt>
+              <dd className="text-zinc-200">{selectedNiche?.name ?? "Not selected"}</dd>
+            </div>
+            <div className="flex gap-2">
+              <dt className="w-20 shrink-0 text-zinc-500">Direction</dt>
+              <dd className="text-zinc-200">{selectedSubNiche?.name ?? "Not selected"}</dd>
+            </div>
+            {creatorGoal.trim() ? (
+              <div className="flex gap-2">
+                <dt className="w-20 shrink-0 text-zinc-500">Goal</dt>
+                <dd className="min-w-0 text-zinc-200">{creatorGoal.trim()}</dd>
+              </div>
+            ) : null}
+          </dl>
+        </section>
+
+        <section className="border-t border-white/10 pt-5 md:border-l md:border-t-0 md:pl-8 md:pt-0">
+          <h3 className="text-sm font-semibold text-white">What happens next?</h3>
+          <p className="mt-3 text-sm leading-6 text-zinc-400">
+            Next, Creator OS will use this foundation to suggest inspiration creators, content
+            ideas, captions, and weekly plans.
+          </p>
+        </section>
       </div>
 
       {state.message ? (

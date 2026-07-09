@@ -48,7 +48,7 @@ export default async function NichePage() {
           Choose your niche
         </h2>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
-          Start by selecting the content world you want to build in.
+          Start by choosing the content world you want to build in.
         </p>
       </div>
 
