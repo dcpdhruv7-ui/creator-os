@@ -1,4 +1,5 @@
 import {
+  ArrowRight,
   BarChart3,
   CalendarDays,
   Compass,
@@ -6,15 +7,13 @@ import {
   Sparkles,
   UserRoundCog,
 } from "lucide-react";
+import Link from "next/link";
 
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { createClient } from "@/lib/supabase/server";
 
 const dashboardCards = [
-  {
-    title: "My Niche",
-    description: "Your primary niche and sub-niche choices will appear here.",
-    icon: Compass,
-  },
   {
     title: "Creator Profile",
     description: "Tone, energy, editing style, and growth angle are coming next.",
@@ -42,26 +41,71 @@ const dashboardCards = [
   },
 ];
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const [{ data: profile }, { data: creatorProfile }] = await Promise.all([
+    supabase.from("profiles").select("primary_niche").eq("id", user!.id).maybeSingle(),
+    supabase
+      .from("user_creator_profiles")
+      .select("niche, sub_niche")
+      .eq("user_id", user!.id)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+  const niche = creatorProfile?.niche ?? profile?.primary_niche ?? null;
+  const subNiche = creatorProfile?.sub_niche ?? null;
+
   return (
     <section className="mx-auto w-full max-w-6xl">
       <div className="mb-6">
         <p className="text-sm font-medium text-emerald-300">Dashboard</p>
         <h2 className="mt-2 text-3xl font-semibold tracking-normal text-white">
-          Creator OS foundation
+          Your Creator OS
         </h2>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
-          Day 1 is focused on account access, navigation, database structure, and a clean home for
-          the next MVP layers.
+          Build your creator strategy one focused layer at a time.
         </p>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <Card className="min-h-48 border-emerald-300/20">
+          <CardHeader>
+            <div className="mb-3 flex size-10 items-center justify-center rounded-md border border-emerald-300/20 bg-emerald-400/10 text-emerald-200">
+              <Compass className="size-5" />
+            </div>
+            <CardTitle>My Niche</CardTitle>
+            {niche ? (
+              <CardDescription>
+                <span className="block text-base font-medium text-zinc-100">{niche}</span>
+                <span className="mt-1 block">
+                  {subNiche ?? "Choose a sub-niche to refine your direction."}
+                </span>
+              </CardDescription>
+            ) : (
+              <CardDescription>
+                Choose your niche to start building your creator strategy.
+              </CardDescription>
+            )}
+          </CardHeader>
+          <CardContent>
+            <Button asChild size="sm" variant={niche ? "secondary" : "default"}>
+              <Link href="/niche">
+                {niche ? "Edit niche" : "Set niche"}
+                <ArrowRight />
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+
         {dashboardCards.map((card) => {
           const Icon = card.icon;
 
           return (
-            <Card className="min-h-40" key={card.title}>
+            <Card className="min-h-48" key={card.title}>
               <CardHeader>
                 <div className="mb-3 flex size-10 items-center justify-center rounded-md border border-emerald-300/20 bg-emerald-400/10 text-emerald-200">
                   <Icon className="size-5" />
