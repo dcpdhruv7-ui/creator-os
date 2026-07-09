@@ -42,6 +42,8 @@ type NicheAdapter = {
   finalOutput: string;
   finalFormat: string;
   effort: string;
+  supportingClips: string;
+  btsSequence: string;
   teachUnit: string;
   mistake: string;
   beforeAfter: string;
@@ -58,6 +60,7 @@ type NicheAdapter = {
 type PatternContext = {
   profile: IdeaProfile;
   adapter: NicheAdapter;
+  creatorReference: string | null;
 };
 
 type UniversalIdeaPattern = {
@@ -69,6 +72,7 @@ type UniversalIdeaPattern = {
   title: (context: PatternContext) => string;
   hook: (context: PatternContext) => string;
   shotList: (context: PatternContext) => string;
+  captionAngle: (context: PatternContext) => string;
 };
 
 function titleCase(value: string) {
@@ -93,11 +97,18 @@ function titleCase(value: string) {
     .join(" ");
 }
 
+function sentenceContinuation(value: string) {
+  const trimmed = value.trim().replace(/\.$/, "");
+  return trimmed.charAt(0).toLowerCase() + trimmed.slice(1);
+}
+
 export const nicheAdapters: Record<string, NicheAdapter> = {
   Dance: {
     finalOutput: "final performance reel",
     finalFormat: "Performance Reel",
     effort: "practice session",
+    supportingClips: "a wide performance, an expression close-up, and a footwork detail",
+    btsSequence: "a practice clip, missed timing, the correction drill, and the final performance",
     teachUnit: "step or eight-count",
     mistake: "rushing the beat instead of finishing the movement",
     beforeAfter: "first take vs polished final take",
@@ -114,6 +125,8 @@ export const nicheAdapters: Record<string, NicheAdapter> = {
     finalOutput: "finished sketch with the strongest punchline",
     finalFormat: "Comedy Sketch",
     effort: "sketch shoot",
+    supportingClips: "the setup, the reaction beat, and the punchline close-up",
+    btsSequence: "the character setup, a broken take, the timing adjustment, and the clean punchline",
     teachUnit: "setup, escalation, and punchline",
     mistake: "explaining the setup for too long",
     beforeAfter: "flat delivery vs timed comedic delivery",
@@ -130,6 +143,8 @@ export const nicheAdapters: Record<string, NicheAdapter> = {
     finalOutput: "finished dish reveal",
     finalFormat: "Finished Dish Reel",
     effort: "recipe session",
+    supportingClips: "an ingredient close-up, the key cooking moment, and the final texture",
+    btsSequence: "the ingredients, prep, cooking process, plating, and the final dish",
     teachUnit: "ingredient-to-plate step",
     mistake: "skipping the texture or timing cue",
     beforeAfter: "raw ingredients vs plated result",
@@ -146,6 +161,8 @@ export const nicheAdapters: Record<string, NicheAdapter> = {
     finalOutput: "completed workout or progress result",
     finalFormat: "Workout Result Reel",
     effort: "workout session",
+    supportingClips: "the setup, one strong working set, and a form detail",
+    btsSequence: "the warm-up, equipment setup, an imperfect rep, the correction, and a final clean rep",
     teachUnit: "exercise or form cue",
     mistake: "losing form to chase speed or weight",
     beforeAfter: "uncorrected form vs corrected form",
@@ -162,6 +179,8 @@ export const nicheAdapters: Record<string, NicheAdapter> = {
     finalOutput: "best gameplay highlight",
     finalFormat: "Gameplay Highlight",
     effort: "gaming session",
+    supportingClips: "the match setup, the key decision, and the reaction",
+    btsSequence: "the match setup, the mistake moment, the live reaction, the adjustment, and the winning highlight",
     teachUnit: "decision, mechanic, or tactical move",
     mistake: "reacting without reading the situation",
     beforeAfter: "old decision-making vs improved play",
@@ -178,6 +197,8 @@ export const nicheAdapters: Record<string, NicheAdapter> = {
     finalOutput: "finished outfit or look reveal",
     finalFormat: "Final Look Reel",
     effort: "styling session",
+    supportingClips: "the base outfit, one styling detail, and the accessories close-up",
+    btsSequence: "the occasion brief, first outfit attempt, rejected piece, styling adjustment, and final look",
     teachUnit: "styling decision or outfit formula",
     mistake: "adding pieces without a clear focal point",
     beforeAfter: "base outfit vs fully styled look",
@@ -194,6 +215,8 @@ export const nicheAdapters: Record<string, NicheAdapter> = {
     finalOutput: "clear lesson with one useful takeaway",
     finalFormat: "Clear Explainer",
     effort: "topic lesson",
+    supportingClips: "the core concept, one visual example, and the practical takeaway",
+    btsSequence: "the topic question, rough explanation, confusing point, clearer example, and final lesson",
     teachUnit: "concept, example, and takeaway",
     mistake: "introducing detail before giving the main idea",
     beforeAfter: "confusing explanation vs clear framework",
@@ -210,6 +233,8 @@ export const nicheAdapters: Record<string, NicheAdapter> = {
     finalOutput: "completed routine or visible progress check",
     finalFormat: "Routine or Progress Reel",
     effort: "habit session",
+    supportingClips: "the routine trigger, the hardest step, and the completed check-in",
+    btsSequence: "the routine setup, resistance moment, missed attempt, smaller adjustment, and completed habit",
     teachUnit: "routine step or mindset reframe",
     mistake: "making the habit too large to repeat",
     beforeAfter: "old routine vs sustainable routine",
@@ -226,6 +251,8 @@ export const nicheAdapters: Record<string, NicheAdapter> = {
     finalOutput: "final cinematic shot or edited sequence",
     finalFormat: "Final Cinematic",
     effort: "cinematic shoot",
+    supportingClips: "the hero frame, a camera-movement detail, and the graded close-up",
+    btsSequence: "the camera setup, lighting, movement rehearsal, raw shot, adjustment, and final grade",
     teachUnit: "shot, lighting choice, or camera move",
     mistake: "moving the camera without a storytelling reason",
     beforeAfter: "ungraded shot vs final color grade",
@@ -242,6 +269,8 @@ export const nicheAdapters: Record<string, NicheAdapter> = {
     finalOutput: "finished animation loop or scene",
     finalFormat: "Final Animation",
     effort: "animation session",
+    supportingClips: "the strongest key pose, a motion detail, and the final loop",
+    btsSequence: "the rough sketch, blocking pass, timing issue, polish adjustment, and final render",
     teachUnit: "pose, motion principle, or effects step",
     mistake: "adding detail before the motion reads clearly",
     beforeAfter: "blocking pass vs polished animation",
@@ -258,6 +287,8 @@ export const nicheAdapters: Record<string, NicheAdapter> = {
     finalOutput: "finished tool demo or working workflow",
     finalFormat: "Tool or Workflow Demo",
     effort: "tool test",
+    supportingClips: "the input, one key workflow step, and the useful output",
+    btsSequence: "the original task, first setup, failed output, prompt or workflow correction, and final result",
     teachUnit: "workflow step, prompt, or feature",
     mistake: "showing features without a real task or outcome",
     beforeAfter: "manual process vs assisted workflow",
@@ -274,6 +305,8 @@ export const nicheAdapters: Record<string, NicheAdapter> = {
     finalOutput: "finished post, reel, or hook test",
     finalFormat: "Final Content Example",
     effort: "content session",
+    supportingClips: "the opening hook, one editing decision, and the final CTA",
+    btsSequence: "the raw idea, rough draft, weak opening, rewrite or edit, and final published version",
     teachUnit: "hook, structure, or editing decision",
     mistake: "starting with context instead of viewer relevance",
     beforeAfter: "weak opening vs stronger opening",
@@ -319,8 +352,10 @@ export const universalIdeaPatterns: UniversalIdeaPattern[] = [
       `${profile.subNiche}: ${titleCase(adapter.finalOutput)}`,
     hook: ({ adapter }) =>
       `Here is the ${adapter.finalOutput} from one focused ${adapter.effort}.`,
-    shotList: ({ adapter }) =>
-      `Record the ${adapter.finalOutput} first. Capture one opening payoff, one wide context shot, two useful details, and a clean ending that can loop.`,
+    shotList: ({ profile, adapter }) =>
+      `Show the ${adapter.finalOutput} in the first two seconds. Support it with ${adapter.supportingClips}. End on the strongest result with a clean payoff or loop. Use ${profile.editingStyle.toLowerCase()} to keep the presentation ${profile.energyStyle.toLowerCase()}.`,
+    captionAngle: ({ profile, adapter }) =>
+      `Lead with the result, then explain the one decision that made the ${adapter.finalOutput} work. Keep the voice ${profile.contentTone.toLowerCase()} and connect that decision to how you ${sentenceContinuation(profile.growthAngle)}.`,
   },
   {
     id: "behind-the-scenes",
@@ -332,8 +367,10 @@ export const universalIdeaPatterns: UniversalIdeaPattern[] = [
       `Show the ${titleCase(adapter.effort)} Behind Your ${profile.subNiche} Result`,
     hook: ({ adapter }) =>
       `The finished result hides the most useful part of this ${adapter.effort}.`,
-    shotList: ({ adapter }) =>
-      `During the ${adapter.effort}, record the setup, one imperfect attempt, the adjustment you made, and a two-second preview of the final result.`,
+    shotList: ({ profile, adapter }) =>
+      `Capture the process in order: ${adapter.btsSequence}. Keep the imperfect moment visible, label the correction, and finish with the clean result. Use ${profile.editingStyle.toLowerCase()} only to remove dead time, not the useful process.`,
+    captionAngle: ({ profile }) =>
+      `Show the hidden work behind the result to build trust. Name what went wrong, what changed, and what the viewer can learn from the correction. Write it in a ${profile.contentTone.toLowerCase()} voice.`,
   },
   {
     id: "tutorial",
@@ -345,8 +382,10 @@ export const universalIdeaPatterns: UniversalIdeaPattern[] = [
       `Teach One ${profile.subNiche} ${titleCase(adapter.teachUnit)}`,
     hook: ({ adapter }) =>
       `Save this: here is the simplest way to understand this ${adapter.teachUnit}.`,
-    shotList: ({ adapter }) =>
-      `Open with the finished outcome. Teach the ${adapter.teachUnit} in three numbered beats, repeat the full process once, and end with the viewer's next action.`,
+    shotList: ({ profile, adapter, creatorReference }) =>
+      `Preview the finished result. Teach the ${adapter.teachUnit} in three numbered steps with a clear visual for each step. Repeat the complete result at normal speed and end with one practice action.${creatorReference ? ` Use the clarity you liked in ${creatorReference} as a pacing reference while recording an original lesson.` : ""} Add labels using ${profile.editingStyle.toLowerCase()}.`,
+    captionAngle: ({ profile, adapter }) =>
+      `Teach the ${adapter.teachUnit} in the same three-step order as the video. Use ${profile.captionStyle.toLowerCase()} and explicitly invite viewers to save it for their next attempt.`,
   },
   {
     id: "mistake-fix",
@@ -357,8 +396,10 @@ export const universalIdeaPatterns: UniversalIdeaPattern[] = [
     title: ({ profile, adapter }) =>
       `Fix This ${profile.subNiche} Mistake: ${titleCase(adapter.mistake)}`,
     hook: ({ adapter }) => `If your result feels off, you may be ${adapter.mistake}.`,
-    shotList: () =>
-      `Record the mistake clearly, freeze on the exact problem, demonstrate one correction, then repeat the corrected result in the same framing.`,
+    shotList: ({ profile, adapter }) =>
+      `Show the wrong version first: ${adapter.mistake}. Freeze on the exact moment, explain why it hurts the result, demonstrate one correction, and end with the corrected version in matching framing. Keep the delivery ${profile.energyStyle.toLowerCase()}.`,
+    captionAngle: ({ profile }) =>
+      `Point out the common mistake without shaming the viewer, explain the correction in one sentence, and finish with the cue they should remember. Match the ${profile.contentTone.toLowerCase()} profile tone.`,
   },
   {
     id: "before-after",
@@ -369,8 +410,10 @@ export const universalIdeaPatterns: UniversalIdeaPattern[] = [
     title: ({ profile, adapter }) =>
       `${profile.subNiche}: ${titleCase(adapter.beforeAfter)}`,
     hook: ({ adapter }) => `One focused change created this difference: ${adapter.beforeAfter}.`,
-    shotList: () =>
-      `Capture both versions with matching framing. Show the before, one process beat that explains the change, then the after twice: once at full speed and once with a detail highlighted.`,
+    shotList: ({ profile, adapter }) =>
+      `Record ${adapter.beforeAfter} with the same framing. Show the before, the single change or process beat, then the after at full speed. Replay one detail side by side so the transformation is undeniable. Use ${profile.editingStyle.toLowerCase()} for the comparison.`,
+    captionAngle: ({ profile }) =>
+      `Frame the post as a transformation: what the before lacked, what changed, and why the after works. End with a simple lesson that helps you ${sentenceContinuation(profile.growthAngle)}.`,
   },
   {
     id: "breakdown",
@@ -382,8 +425,10 @@ export const universalIdeaPatterns: UniversalIdeaPattern[] = [
       `Break Down This ${profile.subNiche} Result: ${titleCase(adapter.breakdownTarget)}`,
     hook: ({ adapter }) =>
       `The result works because of these parts: ${adapter.breakdownTarget}.`,
-    shotList: ({ adapter }) =>
-      `Play the final output, then pause at three decisions. Label each part of ${adapter.breakdownTarget}, explain why it matters, and replay the full result.`,
+    shotList: ({ adapter, creatorReference }) =>
+      `Play the full result once. Break ${adapter.breakdownTarget} into three labeled parts, giving each part its own clip or freeze frame. Explain one decision per part, then replay the result so viewers can notice all three.${creatorReference ? ` Use ${creatorReference} only as a structural reference for the breakdown.` : ""}`,
+    captionAngle: ({ profile, adapter }) =>
+      `Build authority by explaining why each part of ${adapter.breakdownTarget} exists. Use ${profile.captionStyle.toLowerCase()} to summarize the three decisions and invite a specific follow-up question.`,
   },
   {
     id: "quick-tip",
@@ -394,8 +439,10 @@ export const universalIdeaPatterns: UniversalIdeaPattern[] = [
     title: ({ profile, adapter }) =>
       `One ${profile.subNiche} Tip: ${titleCase(adapter.tip)}`,
     hook: ({ adapter }) => `Try this on your next attempt: ${adapter.tip}.`,
-    shotList: () =>
-      `Show the problem in two seconds, demonstrate the tip once, add one close detail that makes it clear, and finish with the improved result.`,
+    shotList: ({ profile, adapter }) =>
+      `Open on the exact problem for two seconds. Demonstrate this single fix: ${adapter.tip}. Add one close-up or screen detail, then show the improved result once. Keep it fast and ${profile.energyStyle.toLowerCase()}.`,
+    captionAngle: ({ profile, adapter }) =>
+      `Give viewers one immediately usable action: ${adapter.tip}. Keep the caption short in the ${profile.captionStyle.toLowerCase()} style and make the save-worthy takeaway the final line.`,
   },
   {
     id: "challenge",
@@ -406,8 +453,10 @@ export const universalIdeaPatterns: UniversalIdeaPattern[] = [
     title: ({ profile, adapter }) =>
       `${profile.subNiche} Challenge: ${titleCase(adapter.constraint)}`,
     hook: ({ adapter }) => `Can I make this work if I ${adapter.constraint}?`,
-    shotList: () =>
-      `State the constraint, record the first attempt, one setback, the adjustment, and the final result. Keep the outcome uncertain until the last beat.`,
+    shotList: ({ profile, adapter }) =>
+      `State the challenge clearly: ${adapter.constraint}. Record the first attempt, one visible setback, the decision that changes the attempt, and the final result. Delay the outcome until the last beat and keep the pacing ${profile.energyStyle.toLowerCase()}.`,
+    captionAngle: ({ profile, adapter }) =>
+      `Invite participation by explaining the ${adapter.constraint} constraint, sharing the hardest moment, and asking viewers what constraint you should try next. Keep the tone ${profile.contentTone.toLowerCase()}.`,
   },
   {
     id: "story",
@@ -418,8 +467,10 @@ export const universalIdeaPatterns: UniversalIdeaPattern[] = [
     title: ({ profile, adapter }) =>
       `${profile.subNiche} Journey: ${titleCase(adapter.storyArc)}`,
     hook: ({ adapter }) => `This started as ${adapter.storyArc}, but the middle mattered most.`,
-    shotList: () =>
-      `Record a clear starting point, the hardest middle moment, one decision that changed the process, and the current result. Use a short voiceover to connect the beats.`,
+    shotList: ({ profile, adapter }) =>
+      `Build four story beats around ${adapter.storyArc}: the starting point, the difficult middle, the decision that changed the process, and the current result. Record a short voiceover and let each visual prove the line before moving on. Use restrained ${profile.editingStyle.toLowerCase()}.`,
+    captionAngle: ({ profile, adapter }) =>
+      `Tell the honest story behind ${adapter.storyArc}. Focus on the turning point and lesson rather than only the win, using a ${profile.contentTone.toLowerCase()} voice that builds connection.`,
   },
   {
     id: "comparison",
@@ -430,8 +481,10 @@ export const universalIdeaPatterns: UniversalIdeaPattern[] = [
     title: ({ profile, adapter }) =>
       `${profile.subNiche} Comparison: ${titleCase(adapter.comparison)}`,
     hook: ({ adapter }) => `Which approach works better here: ${adapter.comparison}?`,
-    shotList: () =>
-      `Record both approaches with the same setup. Label the difference, show one advantage and limitation for each, then give a clear use case instead of a universal winner.`,
+    shotList: ({ profile, adapter }) =>
+      `Record both sides of ${adapter.comparison} using the same setup. Label A and B, show one advantage and limitation for each, then finish with the situation where each choice works best. Use matched ${profile.editingStyle.toLowerCase()} so the comparison feels fair.`,
+    captionAngle: ({ adapter }) =>
+      `Compare ${adapter.comparison} without declaring a vague winner. List the best use case for each option and ask viewers which situation matches their needs.`,
   },
   {
     id: "reaction",
@@ -442,8 +495,10 @@ export const universalIdeaPatterns: UniversalIdeaPattern[] = [
     title: ({ profile, adapter }) =>
       `React to Your Own ${profile.subNiche} Work: ${titleCase(adapter.reactionTarget)}`,
     hook: ({ adapter }) => `I would change this now, and here is why: ${adapter.reactionTarget}.`,
-    shotList: () =>
-      `Use your own recorded example. Play the key moment, pause for one specific observation, show the better choice, and end with the lesson rather than a vague reaction.`,
+    shotList: ({ profile, adapter }) =>
+      `Use your own example for ${adapter.reactionTarget}. Play the key moment, pause for one precise observation, record your commentary, show the choice you would make now, and close on the lesson. Keep the reaction ${profile.contentTone.toLowerCase()}, not exaggerated.`,
+    captionAngle: ({ adapter }) =>
+      `Use commentary to explain what ${adapter.reactionTarget} taught you. Separate your immediate reaction from the practical lesson, then invite viewers to share how they would handle it.`,
   },
   {
     id: "repurpose",
@@ -455,8 +510,10 @@ export const universalIdeaPatterns: UniversalIdeaPattern[] = [
       `Turn One ${titleCase(adapter.effort)} into ${adapter.repurpose.length} Posts`,
     hook: ({ adapter }) =>
       `Do not stop at one post. This ${adapter.effort} can become ${adapter.repurpose.join(", ")}.`,
-    shotList: ({ adapter }) =>
-      `Plan one capture list before the ${adapter.effort}. Record enough for: ${adapter.repurpose.join("; ")}. Keep each post focused on one promise and reuse the strongest result shot as the connecting visual.`,
+    shotList: ({ profile, adapter }) =>
+      `Before the ${adapter.effort}, plan one shared capture list. Record enough material for ${adapter.repurpose.length} separate posts: ${adapter.repurpose.join("; ")}. Give each post its own hook and takeaway, then reuse the strongest result shot to connect the series. Batch the edits using ${profile.editingStyle.toLowerCase()}.`,
+    captionAngle: ({ profile, adapter }) =>
+      `Teach the content multiplication plan directly: one ${adapter.effort}, ${adapter.repurpose.length} posts, and one distinct promise per post. Explain how this workflow helps you ${sentenceContinuation(profile.growthAngle)}.`,
   },
 ];
 
@@ -478,13 +535,10 @@ export function generateAdaptiveIdeas(profile: IdeaProfile): GeneratedIdea[] {
 
   return selectedPatternIds.map((patternId, index) => {
     const pattern = patternMap.get(patternId)!;
-    const context = { profile, adapter };
     const creatorReference = profile.selectedCreatorNames.length
       ? profile.selectedCreatorNames[index % profile.selectedCreatorNames.length]
       : null;
-    const inspirationNote = creatorReference
-      ? `Use the pacing principle you liked in ${creatorReference}, but record an original example.`
-      : "Keep the example original and specific to your experience.";
+    const context = { profile, adapter, creatorReference };
 
     return {
       key: pattern.id,
@@ -493,8 +547,8 @@ export function generateAdaptiveIdeas(profile: IdeaProfile): GeneratedIdea[] {
       niche: profile.niche,
       sub_niche: profile.subNiche,
       format: formatTemplates[pattern.id](context),
-      shot_list: `${pattern.shotList(context)} Use ${profile.editingStyle.toLowerCase()} and keep the delivery ${profile.energyStyle.toLowerCase()}. ${inspirationNote}`,
-      caption_angle: `${profile.captionStyle}. Write in a ${profile.contentTone.toLowerCase()} voice, explain the ${pattern.label.toLowerCase()} takeaway, and connect it to this growth direction: ${profile.growthAngle}`,
+      shot_list: pattern.shotList(context),
+      caption_angle: pattern.captionAngle(context),
       difficulty: pattern.difficulty,
       goal: pattern.goal,
       priority: pattern.priority,
