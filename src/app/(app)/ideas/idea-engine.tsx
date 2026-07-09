@@ -2,12 +2,12 @@
 
 import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
-import { Check, LoaderCircle, RefreshCw, Save } from "lucide-react";
+import { Check, Layers3, LoaderCircle, RefreshCw, Save } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  generateContentIdeas,
+  generateAdaptiveIdeas,
   type GeneratedIdea,
   type IdeaProfile,
 } from "@/lib/content-ideas";
@@ -65,7 +65,7 @@ export function IdeaEngine({ profile, savedIdeas }: IdeaEngineProps) {
   const [state, formAction] = useActionState(saveGeneratedIdeas, initialState);
 
   function generateIdeas() {
-    setGeneratedIdeas(generateContentIdeas(profile));
+    setGeneratedIdeas(generateAdaptiveIdeas(profile));
     setSelectedKeys([]);
   }
 
@@ -84,6 +84,19 @@ export function IdeaEngine({ profile, savedIdeas }: IdeaEngineProps) {
   return (
     <div className="space-y-10">
       <section>
+        <div className="mb-6 flex items-start gap-3 border-y border-white/10 py-4">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-emerald-400/10 text-emerald-200">
+            <Layers3 />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-white">Creator shortcut</h3>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-zinc-400">
+              Creator OS can turn one shoot, session, topic, or idea into multiple posts using
+              formats like BTS, tutorial, final output, mistake fix, and breakdown.
+            </p>
+          </div>
+        </div>
+
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h3 className="text-lg font-semibold text-white">Generated ideas</h3>

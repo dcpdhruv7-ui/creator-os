@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import {
-  generateContentIdeas,
+  generateAdaptiveIdeas,
   type IdeaProfile,
 } from "@/lib/content-ideas";
 import { createClient } from "@/lib/supabase/server";
@@ -96,7 +96,7 @@ export async function saveGeneratedIdeas(
     return { status: "error", message: result.message };
   }
 
-  const ideas = generateContentIdeas(result.profile).filter((idea) =>
+  const ideas = generateAdaptiveIdeas(result.profile).filter((idea) =>
     selectedKeys.includes(idea.key),
   );
 
