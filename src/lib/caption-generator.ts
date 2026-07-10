@@ -119,9 +119,6 @@ type CaptionContext = {
   goal: string;
   originalHook: string;
   shotList: string;
-  captionAngle: string;
-  tone: string;
-  captionStyle: string;
 };
 
 const directionLabels: Record<CreativeDirection, string> = {
@@ -314,16 +311,51 @@ function sentence(value: string) {
   return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
 }
 
-function titleCase(value: string) {
-  return value
-    .split(" ")
-    .map((word) =>
-      word
-        .split("-")
-        .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
-        .join("-"),
-    )
-    .join(" ");
+const subNicheLabels: Record<string, string> = {
+  "Workout Routines": "workout routine",
+  Bollywood: "Bollywood dance",
+  "Gym Motivation": "gym motivation",
+  Bodybuilding: "bodybuilding",
+  "Fat Loss": "fat loss",
+  Calisthenics: "calisthenics",
+  "Transformation Journey": "transformation journey",
+  "Fitness Education": "fitness education",
+  "Hip-hop": "hip-hop dance",
+  Krump: "krump dance",
+  Freestyle: "freestyle dance",
+  Contemporary: "contemporary dance",
+  Tutorials: "tutorial",
+  "Dance Fitness": "dance fitness",
+};
+
+const hashtagAliases: Record<string, string> = {
+  "workout routines": "#workoutroutine",
+  "workout routine": "#workoutroutine",
+  bollywood: "#bollywooddance",
+  "bollywood dance": "#bollywooddance",
+  "gym motivation": "#gymmotivation",
+  bodybuilding: "#bodybuilding",
+  "fat loss": "#fatloss",
+  calisthenics: "#calisthenics",
+  "transformation journey": "#transformation",
+  "fitness education": "#fitnesseducation",
+  "hip-hop": "#hiphopdance",
+  "hip-hop dance": "#hiphopdance",
+  freestyle: "#freestyledance",
+  "freestyle dance": "#freestyledance",
+  contemporary: "#contemporarydance",
+  "contemporary dance": "#contemporarydance",
+  tutorials: "#tutorial",
+  tutorial: "#tutorial",
+  "dance fitness": "#dancefitness",
+  "workout result reel": "#gymreels",
+  "performance reel": "#dancevideo",
+  "practice session bts": "#behindthescenes",
+};
+
+function humanizeSubNiche(value: string) {
+  const trimmed = value.trim();
+  return subNicheLabels[trimmed] ?? lowerFirst(trimmed.replace(/\s+/g, " "));
 }
 
 function hashtag(value: string) {
@@ -331,18 +363,75 @@ function hashtag(value: string) {
 
   if (!cleaned) return null;
 
-  return `#${cleaned
-    .split(/\s+/)
-    .map((part, index) =>
-      index === 0
-        ? part.toLowerCase()
-        : part.charAt(0).toUpperCase() + part.slice(1).toLowerCase(),
-    )
-    .join("")}`;
+  const key = cleaned.toLowerCase();
+  return hashtagAliases[key] ?? `#${key.split(/\s+/).join("")}`;
 }
 
 function unique(values: Array<string | null | undefined>) {
   return [...new Set(values.filter(Boolean) as string[])];
+}
+
+function normalizeHashtags(value: string) {
+  const tags = value
+    .split(/\s+/)
+    .map((tag) => tag.trim().toLowerCase())
+    .filter((tag) => /^#[a-z0-9]+$/.test(tag));
+
+  return unique(tags).join(" ");
+}
+
+function cleanCaptionText(value: string) {
+  const withoutInternalLanguage = value
+    .replace(/\bcaption angle\b/gi, "idea")
+    .replace(/\bgrowth direction\b/gi, "direction")
+    .replace(/\bformat template\b/gi, "format")
+    .replace(/\bcreator profile\b/gi, "creator style")
+    .replace(/\bKeep the caption\s+([^.\n]+?)\s+captions?\b/gi, "Keep it $1")
+    .replace(/\bcaption\s+captions?\b/gi, "caption")
+    .replace(/\s+([,.!?])/g, "$1")
+    .replace(/[ \t]{2,}/g, " ");
+  const blocks = withoutInternalLanguage.split(/\n{2,}/);
+  const seenSentences = new Set<string>();
+
+  return blocks
+    .map((block) =>
+      block
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => {
+          const key = line.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+          if (!key || /^[0-9]+\. /.test(line) || line.startsWith("- ")) {
+            return true;
+          }
+
+          if (seenSentences.has(key)) {
+            return false;
+          }
+
+          seenSentences.add(key);
+          return true;
+        })
+        .join("\n"),
+    )
+    .filter(Boolean)
+    .join("\n\n")
+    .trim();
+}
+
+function dedupeGeneratedItems<T>(items: T[], getValue: (item: T) => string) {
+  const seen = new Set<string>();
+
+  return items.filter((item) => {
+    const key = cleanCaptionText(getValue(item)).toLowerCase();
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
 }
 
 function rotate<T>(values: T[], amount: number) {
@@ -370,33 +459,53 @@ function getPattern(idea: CaptionIdea): PatternId {
   if (text.includes("breakdown") || text.includes("framework")) return "breakdown";
   if (text.includes("quick tip") || text.includes("tip")) return "quick-tip";
   if (text.includes("challenge")) return "challenge";
-  if (text.includes("journey") || text.includes("story") || text.includes("progress")) return "story";
   if (text.includes("comparison") || text.includes("side-by-side") || text.includes(" vs ")) return "comparison";
   if (text.includes("reaction") || text.includes("commentary")) return "reaction";
   if (text.includes("multiplication") || text.includes("repurpose") || text.includes("multiple posts")) return "repurpose";
+  if (text.includes("journey") || text.includes("story")) return "story";
+  if (text.includes("result") || text.includes("final") || text.includes("completed")) return "final-output";
 
   return "final-output";
 }
 
 function patternPromise(context: CaptionContext) {
-  const { adapter, pattern, subNiche } = context;
+  const { adapter, pattern } = context;
 
   const promises: Record<PatternId, string> = {
-    "final-output": `the payoff from this ${subNiche} result`,
-    "behind-the-scenes": `the hidden process behind the final ${adapter.subject}`,
-    tutorial: `the repeatable steps behind this ${adapter.subject}`,
-    "mistake-fix": `the correction that fixes ${adapter.mistake}`,
-    "before-after": "the exact change between the before and after",
-    breakdown: `the structure underneath this ${subNiche} idea`,
-    "quick-tip": `one quick cue for ${adapter.proof}`,
-    challenge: `what the constraint reveals about this ${subNiche} idea`,
-    story: `the honest turn behind the ${adapter.result}`,
-    comparison: "which version works better and why",
-    reaction: "what the old attempt teaches now",
-    repurpose: `how one ${adapter.session} becomes multiple posts`,
+    "final-output": "the result feels finished because one detail is clear",
+    "behind-the-scenes": "the process is what makes the final result believable",
+    tutorial: "one repeatable step is easier to remember than a long explanation",
+    "mistake-fix": `a small correction can fix ${adapter.mistake}`,
+    "before-after": "the change is easier to understand when people see both versions",
+    breakdown: "the structure underneath the result is what people can reuse",
+    "quick-tip": `one simple cue can create ${adapter.proof}`,
+    challenge: "a clear constraint can make the idea sharper",
+    story: "the turning point is what makes the result feel real",
+    comparison: "two versions can teach more than one perfect take",
+    reaction: "looking back makes the lesson easier to explain",
+    repurpose: `one ${adapter.session} can become more than one post`,
   };
 
   return promises[pattern];
+}
+
+function fallbackCaptionAngle(context: Pick<CaptionContext, "adapter" | "pattern">) {
+  const fallbacks: Record<PatternId, string> = {
+    "final-output": "Start with the result, then show what made it work.",
+    "behind-the-scenes": "Show the process that happened before the final version.",
+    tutorial: "Break the idea into steps people can repeat.",
+    "mistake-fix": `Show the mistake, then show the correction.`,
+    "before-after": "Let the before and after carry the lesson.",
+    breakdown: "Explain the parts that make the result work.",
+    "quick-tip": "Give one cue people can try right away.",
+    challenge: "Show the constraint, the struggle, and the final result.",
+    story: "Tell the turning point behind the result.",
+    comparison: "Show both versions and explain when each one works.",
+    reaction: "Share what you would change now.",
+    repurpose: `Show how one ${context.adapter.session} can become multiple posts.`,
+  };
+
+  return fallbacks[context.pattern];
 }
 
 function buildContext(
@@ -407,14 +516,15 @@ function buildContext(
   variant: number,
 ): CaptionContext {
   const niche = clean(idea.niche, profile.niche);
-  const subNiche = clean(idea.sub_niche, profile.subNiche);
+  const subNiche = humanizeSubNiche(clean(idea.sub_niche, profile.subNiche));
   const adapter = nicheAdapters[niche] ?? fallbackAdapter;
+  const pattern = getPattern(idea);
 
   return {
     profile,
     idea,
     adapter,
-    pattern: getPattern(idea),
+    pattern,
     direction,
     remix,
     variant,
@@ -424,156 +534,136 @@ function buildContext(
     goal: clean(idea.goal, "Growth"),
     originalHook: clean(idea.hook, `Here is a ${subNiche} idea worth testing.`),
     shotList: clean(idea.shot_list, `Show the result, reveal the process, and end with ${adapter.proof}.`),
-    captionAngle: clean(idea.caption_angle, `Explain ${patternPromise({ adapter, pattern: getPattern(idea), subNiche } as CaptionContext)}.`),
-    tone: lowerFirst(clean(profile.contentTone, "clear and useful")),
-    captionStyle: lowerFirst(clean(profile.captionStyle, "short and practical")),
   };
-}
-
-function directionLead(context: CaptionContext) {
-  const { direction, remix } = context;
-  const effective = remix === "direct" ? "bold" : remix === "emotional" ? "emotional" : remix === "educational" ? "educational" : remix === "hinglish" ? "hinglish" : direction;
-
-  const leads: Record<CreativeDirection, string> = {
-    balanced: "",
-    viral: "Stop making this harder than it needs to be: ",
-    emotional: "The honest part nobody sees: ",
-    educational: "Save this framework: ",
-    hinglish: "Real talk: ",
-    premium: "A cleaner way to present this: ",
-    bold: "Do this before anything else: ",
-  };
-
-  return leads[effective];
 }
 
 function buildHooks(context: CaptionContext): GeneratedHook[] {
   const { adapter, subNiche, pattern, direction, variant } = context;
-  const promise = patternPromise(context);
-  const lead = directionLead(context);
-
-  const patternPhrases: Record<PatternId, string[]> = {
-    "final-output": [
-      `The final ${adapter.subject} is the hook.`,
-      `Show the result first, explain the decision second.`,
-      `This is the payoff from one focused ${adapter.session}.`,
-    ],
-    "behind-the-scenes": [
-      `The final clip does not show the messy part.`,
-      `Before the clean take, there was setup, correction, and another attempt.`,
-      `The process behind this ${adapter.subject} is more useful than the result.`,
-    ],
-    tutorial: [
-      `Learn this in steps, not guesses.`,
-      `Save this before your next ${adapter.session}.`,
-      `The breakdown is simpler than it looks.`,
-    ],
-    "mistake-fix": [
-      `This mistake is weakening your ${adapter.subject}.`,
-      `Fix this before adding more effort.`,
-      `The problem is not the goal. It is the correction you skipped.`,
-    ],
-    "before-after": [
-      `One change created the before and after.`,
-      `Same idea, cleaner execution.`,
-      `The difference is easier to see side by side.`,
-    ],
-    breakdown: [
-      `Most people see the result. Here is the structure.`,
-      `This works because of the parts underneath.`,
-      `Steal the framework, not the exact post.`,
-    ],
-    "quick-tip": [
-      `One quick cue can change the result.`,
-      `Try this before your next attempt.`,
-      `Small fix, clearer outcome.`,
-    ],
-    challenge: [
-      `The constraint made the idea sharper.`,
-      `This challenge exposed the real problem.`,
-      `Can this still work with one clear limit?`,
-    ],
-    story: [
-      `The result is not the full story.`,
-      `This started messy, but the middle taught me something.`,
-      `Progress looked different than expected.`,
-    ],
-    comparison: [
-      `Same goal, two very different choices.`,
-      `Which version actually works better here?`,
-      `This comparison makes the decision clearer.`,
-    ],
-    reaction: [
-      `I would change this now, and here is why.`,
-      `Old attempt, better judgment now.`,
-      `Here is what I would keep, cut, and improve.`,
-    ],
-    repurpose: [
-      `Do not stop at one post from this ${adapter.session}.`,
-      `One ${subNiche} idea can become multiple posts.`,
-      `Shoot once, publish smarter.`,
-    ],
+  const patternHooks: Record<PatternId, Partial<Record<number, string>>> = {
+    "final-output": {
+      0: "The final result is only half the story.",
+      2: "One small change made the result feel cleaner.",
+      5: "Start with the strongest moment.",
+    },
+    "behind-the-scenes": {
+      0: "The final result is only half the story.",
+      4: "Before the clean take, there was this.",
+      6: "This is the part the final clip does not show.",
+    },
+    tutorial: {
+      1: "If you are learning this, start here.",
+      7: "Save this before your next session.",
+      9: "Keep this as your quick checklist.",
+    },
+    "mistake-fix": {
+      1: "This small mistake changes the whole result.",
+      3: "Fix this before adding more effort.",
+      9: "Save this before your next session.",
+    },
+    "before-after": {
+      0: "The difference is easier to see side by side.",
+      2: "One change made the after look cleaner.",
+      8: "More effort was not the answer.",
+    },
+    breakdown: {
+      0: "Most people see the result. Few see the structure.",
+      5: "The result works because the structure is clear.",
+      7: "Save this breakdown for later.",
+    },
+    "quick-tip": {
+      2: "One small cue can change the result.",
+      7: "Try this before your next attempt.",
+      9: "Save this for your next session.",
+    },
+    challenge: {
+      0: "A simple constraint made this more interesting.",
+      5: "The limit made the idea sharper.",
+      8: "Less freedom can create better content.",
+    },
+    story: {
+      0: "The result is not the full story.",
+      6: "I used to skip this part.",
+      8: "Progress looked different than I expected.",
+    },
+    comparison: {
+      0: "Same goal. Two very different versions.",
+      2: "This comparison makes the better choice obvious.",
+      8: "The cleaner option is not always the flashier one.",
+    },
+    reaction: {
+      0: "I would change this now.",
+      6: "Old attempt. Better lesson.",
+      8: "Looking back made the lesson clearer.",
+    },
+    repurpose: {
+      0: `One ${adapter.session} can become more than one post.`,
+      5: "Shoot once. Pull out more angles.",
+      9: "Save this before your next content batch.",
+    },
   };
-
   const baseHooks = [
-    `What if the most useful part of this ${subNiche} idea is not the final result?`,
-    `Your ${adapter.subject} is not stuck. The missing piece is ${promise}.`,
-    `This is what ${adapter.proof} actually looks like in ${subNiche}.`,
-    `${adapter.mistake.charAt(0).toUpperCase() + adapter.mistake.slice(1)} is the mistake to fix first.`,
-    `Behind this ${adapter.result}: ${adapter.process}.`,
-    `${lead}${titleCase(subNiche)} gets better when you make one decision clear.`,
-    `I almost skipped the part that made this ${adapter.subject} work.`,
-    `Save this if you want to repeat the ${adapter.result} without guessing.`,
-    `More effort will not fix a weak process.`,
-    `Keep this as your quick ${subNiche} checklist.`,
-  ];
+    "The final result is only half the story.",
+    "This is the part most people skip.",
+    "One small change made this look cleaner.",
+    "Fix this before adding more effort.",
+    "Before the clean take, there was this.",
+    "Show the process. That is where the trust builds.",
+    "I used to think the final result was the content.",
+    "Save this before your next session.",
+    "More effort is not always the answer.",
+    "Keep this for your next attempt.",
+  ].map((hook, index) => patternHooks[pattern][index] ?? hook);
   const directionHooks: Record<CreativeDirection, string[]> = {
     balanced: baseHooks,
     viral: [
-      `This is why your ${subNiche} content is not landing yet.`,
-      `Nobody talks about this part of the ${adapter.session}.`,
-      `If this looks easy, you missed the best part.`,
-      `One decision changed the whole result.`,
+      "Most people only show the result.",
+      "This is why the post feels more watchable.",
+      "The clean version started with one messy moment.",
+      "One decision changed the whole clip.",
       ...baseHooks.slice(4),
     ],
     emotional: [
-      `The final result looks clean, but the middle was not.`,
-      `This is the part of ${subNiche} progress I wish people showed more.`,
-      `I needed the failed attempt to find the cleaner version.`,
+      "The clean result had a messy middle.",
+      `This is the part of ${subNiche} I wish people showed more.`,
+      "The failed attempt made the final version better.",
       ...baseHooks.slice(3),
     ],
     educational: [
-      `Here is the ${subNiche} checklist I would save.`,
+      "Here is the checklist I would save.",
       `Break this into three parts before your next attempt.`,
-      `The lesson is not the result. It is the repeatable cue.`,
+      "The lesson is not the result. It is the cue you can repeat.",
       ...baseHooks.slice(3),
     ],
     hinglish: [
-      `Final result clean hai, but process mein lesson hai.`,
-      `${titleCase(subNiche)} improve karna hai? Start with this one cue.`,
-      `Yeh mistake fix karo before adding more effort.`,
+      "Final result clean hai, but process mein lesson hai.",
+      "Improve karna hai? Start with one clear cue.",
+      "More effort se pehle yeh mistake fix karo.",
       ...baseHooks.slice(3),
     ],
     premium: [
-      `A refined ${subNiche} result starts with a clearer process.`,
-      `Here is the decision that made this ${adapter.subject} feel intentional.`,
-      `The polished result comes from a cleaner sequence.`,
+      "A polished result starts with a clearer process.",
+      `One decision made this ${adapter.subject} feel more intentional.`,
+      "The clean version came from a cleaner sequence.",
       ...baseHooks.slice(3),
     ],
     bold: [
-      `Stop hiding the process. That is the content.`,
-      `Fix this before you post another ${subNiche} clip.`,
-      `The result is not random. The process is visible.`,
+      "Stop hiding the process. That is the content.",
+      "Fix this before you post the next version.",
+      "The result is not random. The process is visible.",
       ...baseHooks.slice(3),
     ],
   };
-  const selectedHooks = rotate(directionHooks[direction], variant).slice(0, 10);
-
-  return hookCategories.map((category, index) => ({
+  const selectedHooks = dedupeGeneratedItems(
+    rotate(directionHooks[direction], variant).slice(0, 10),
+    (hook) => hook,
+  );
+  const hooks = hookCategories.map((category, index) => ({
     key: category.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
     category,
-    text: sentence(selectedHooks[index] ?? patternPhrases[pattern][index % patternPhrases[pattern].length]),
+    text: cleanCaptionText(sentence(selectedHooks[index] ?? baseHooks[index % baseHooks.length])),
   }));
+
+  return hooks;
 }
 
 function buildCtas(context: CaptionContext): GeneratedCta[] {
@@ -581,8 +671,8 @@ function buildCtas(context: CaptionContext): GeneratedCta[] {
   const goalText = `${goal} ${direction} ${remix}`.toLowerCase();
   const ctaGroups: Record<string, string[]> = {
     Reach: [
-      "Share this with someone building the same skill.",
-      "Send this to a creator who needs a cleaner idea.",
+      "Send this to someone building the same skill.",
+      "Share this with someone who needs the reminder.",
       "Follow for more practical breakdowns like this.",
     ],
     Saves: [
@@ -598,10 +688,10 @@ function buildCtas(context: CaptionContext): GeneratedCta[] {
     Trust: [
       "What part of the process should I show next?",
       "Follow for the real process behind the results.",
-      "Comment PROCESS if you want the next layer.",
+      "Comment PROCESS if you want the next part.",
     ],
     Education: [
-      "Try this cue once and compare the difference.",
+      "Try this and tell me how it feels.",
       "Comment BREAKDOWN if you want the full version.",
       "Save this if the correction helped.",
     ],
@@ -640,14 +730,16 @@ function buildCtas(context: CaptionContext): GeneratedCta[] {
   const mixed = unique([
     ...ctaGroups[selected],
     ...ctaGroups.Saves,
-    `Try this in your next ${adapter.subject} session.`,
+    `Try this in your next ${adapter.session}.`,
   ]);
 
-  return mixed.slice(0, 6).map((text, index) => ({
-    key: `${selected.toLowerCase()}-${index}`,
-    category: index < 3 ? selected : "Extra option",
-    text,
-  }));
+  return dedupeGeneratedItems(mixed, (text) => text)
+    .slice(0, 6)
+    .map((text, index) => ({
+      key: `${selected.toLowerCase()}-${index}`,
+      category: index < 3 ? selected : "Extra option",
+      text: cleanCaptionText(text),
+    }));
 }
 
 function buildHashtagSets(context: CaptionContext): GeneratedHashtagSet[] {
@@ -677,12 +769,16 @@ function buildHashtagSets(context: CaptionContext): GeneratedHashtagSet[] {
   };
   const specific = hashtag(subNiche);
   const formatTag = hashtag(format);
+  const nicheSpecificTags: Record<string, string[]> = {
+    Dance: ["#bollywooddance", "#dancecreator", "#choreography", "#reelsindia", "#dancepractice"],
+    Fitness: ["#fitnesscreator", "#gymreels", "#workoutroutine", "#fitnessjourney", "#formcheck"],
+  };
 
   const sets = [
     {
       key: "niche",
       category: "Niche hashtags",
-      tags: [...adapter.hashtags, specific],
+      tags: [...(nicheSpecificTags[context.niche] ?? adapter.hashtags), specific],
     },
     {
       key: "format",
@@ -709,36 +805,38 @@ function buildHashtagSets(context: CaptionContext): GeneratedHashtagSet[] {
   return sets.map((set) => ({
     key: set.key,
     category: set.category,
-    hashtags: unique(set.tags).slice(0, 8).join(" "),
+    hashtags: normalizeHashtags(unique(set.tags).slice(0, 8).join(" ")),
   }));
 }
 
 function captionBody(context: CaptionContext, type: string, hook: string) {
-  const { adapter, captionAngle, captionStyle, direction, remix, format, shotList, subNiche } = context;
-  const takeaway = sentence(captionAngle);
+  const { adapter, direction, remix, subNiche } = context;
+  const takeaway = sentence(fallbackCaptionAngle(context));
   const promise = patternPromise(context);
   const shorter = remix === "shorter";
   const emotional = direction === "emotional" || remix === "emotional";
   const direct = direction === "bold" || remix === "direct";
 
   if (shorter) {
-    return `${hook}\n\n${sentence(promise)}\n\nKeep it clear. Show the moment. Make the next step obvious.`;
+    return cleanCaptionText(
+      `${hook}\n\n${sentence(promise)}\n\nShow the moment. Name the lesson. Keep it easy to repeat.`,
+    );
   }
 
   const bodies: Record<string, string> = {
-    Simple: `${takeaway}\n\nShow the strongest moment first, then explain the one detail that makes it repeatable.\n\nKeep the caption ${captionStyle}.`,
-    "Viral / punchy": `${hook}\n\nResult first.\nProcess second.\nLesson last.\n\nThat is the easiest way to make this ${format.toLowerCase()} feel worth watching.`,
-    Emotional: `${emotional ? "The honest part is this:" : "The polished version is only one part of it."}\n\nThe useful lesson is in the attempt, the correction, and the moment the result finally starts to feel cleaner.\n\nThat is where ${adapter.audience} build trust.`,
-    Educational: `Use this as the structure:\n1. Open with the strongest result.\n2. Show the useful process detail.\n3. Explain the correction or cue.\n4. End with the repeatable takeaway.\n\nFor this idea: ${shotList}`,
-    Storytelling: `This started with a simple ${subNiche} idea.\n\nThen the process exposed the real lesson: ${lowerFirst(promise)}.\n\nThe final result matters, but the turning point is what people will remember.`,
-    Hinglish: `${hook}\n\nAgar aap ${subNiche} content bana rahe ho, final result se start karo.\n\nPhir real process dikhao: setup, mistake, correction, and clean finish.\n\nSimple rakho, useful rakho, save-worthy banao.`,
-    "Bold / direct": `${direct ? "Be direct:" : "Straight answer:"} ${sentence(promise)}\n\nDo not hide the process. Do not over-explain the setup. Show the proof, name the correction, and give the viewer one action.`,
-    "Community / engagement": `${hook}\n\nI want to know how other creators would handle this.\n\nWould you lead with the final result, the mistake, or the process? This is the kind of choice that changes the whole post.`,
-    "BTS / process": `The final ${adapter.subject} is only the last frame.\n\nThe content is really in the process: ${adapter.process}.\n\nShow that clearly and the post becomes more useful than a simple result clip.`,
-    "Save-worthy": `Save this as a mini checklist:\n- Lead with the result.\n- Show the process detail.\n- Name the mistake or decision.\n- End with the next action.\n\nThat is enough to turn this idea into a cleaner post.`,
+    Simple: `Result first. Process second. Lesson last.\n\nThat is what makes this worth watching.\n\n${takeaway}`,
+    "Viral / punchy": `Most people show the result.\nVery few show the decision that made it work.\n\nThat is where the post gets interesting.`,
+    Emotional: `${emotional ? "The honest part:" : "I used to think the final result was the content."}\n\nNow I am realizing the process is what people connect with.\n\nThe miss, the correction, the cleaner attempt - that is the story.`,
+    Educational: `Here is the structure:\n1. Show the result.\n2. Explain the key detail.\n3. Give one action viewers can repeat.\n\nSimple, useful, and easy to save.`,
+    Storytelling: `This started as a simple ${subNiche} idea.\n\nThe useful part came from the middle: the setup, the correction, and the moment it finally clicked.\n\nThat is the part I would show more often.`,
+    Hinglish: `Final result dikhana easy hai.\nProcess dikhana trust build karta hai.\n\nSetup, mistake, correction, clean finish.\nBas itna clear rakho.`,
+    "Bold / direct": `${direct ? "Straight answer:" : "Simple truth:"} ${sentence(promise)}\n\nDo not hide the useful part.\nShow the proof.\nName the correction.\nGive people one thing to try.`,
+    "Community / engagement": `${hook}\n\nI am curious how other creators would frame this.\n\nWould you lead with the result, the mistake, or the process?`,
+    "BTS / process": `The final ${adapter.result} is only the last frame.\n\nThe better story is the process: ${adapter.process}.\n\nThat is what makes the result feel real.`,
+    "Save-worthy": `Save this as a quick checklist:\n- Start with the strongest moment.\n- Show the process.\n- Name the key detail.\n- End with one clear action.\n\nThat is enough to make the post useful.`,
   };
 
-  return bodies[type] ?? bodies.Simple;
+  return cleanCaptionText(bodies[type] ?? bodies.Simple);
 }
 
 function buildCaptions(
@@ -751,7 +849,9 @@ function buildCaptions(
   const rotatedCtas = rotate(ctas, context.variant);
   const rotatedHashtags = rotate(hashtagSets, context.variant);
 
-  return captionTypes.map((captionType, index) => {
+  return dedupeGeneratedItems(captionTypes, (captionType) =>
+    captionBody(context, captionType, ""),
+  ).map((captionType, index) => {
     const hook = rotatedHooks[index % rotatedHooks.length];
     const cta = rotatedCtas[index % rotatedCtas.length];
     const hashtagSet = rotatedHashtags[index % rotatedHashtags.length];
@@ -759,10 +859,10 @@ function buildCaptions(
     return {
       key: captionType.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
       caption_type: captionType,
-      hook: hook.text,
+      hook: cleanCaptionText(hook.text),
       body: captionBody(context, captionType, hook.text),
-      cta: cta.text,
-      hashtags: hashtagSet.hashtags,
+      cta: cleanCaptionText(cta.text),
+      hashtags: normalizeHashtags(hashtagSet.hashtags),
       hashtag_category: hashtagSet.category,
     };
   });
