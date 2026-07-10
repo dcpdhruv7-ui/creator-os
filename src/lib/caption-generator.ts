@@ -434,6 +434,87 @@ function dedupeGeneratedItems<T>(items: T[], getValue: (item: T) => string) {
   });
 }
 
+const fillerHookWords = new Set([
+  "a",
+  "an",
+  "and",
+  "are",
+  "as",
+  "at",
+  "before",
+  "for",
+  "from",
+  "in",
+  "is",
+  "it",
+  "of",
+  "on",
+  "or",
+  "that",
+  "the",
+  "this",
+  "to",
+  "when",
+  "with",
+  "your",
+]);
+
+function normalizeHook(value: string) {
+  return cleanCaptionText(value)
+    .toLowerCase()
+    .replace(/['']/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function importantWords(value: string) {
+  return normalizeHook(value)
+    .split(" ")
+    .filter((word) => word.length > 2 && !fillerHookWords.has(word));
+}
+
+function areHooksSimilar(a: string, b: string) {
+  const normalizedA = normalizeHook(a);
+  const normalizedB = normalizeHook(b);
+
+  if (!normalizedA || !normalizedB) {
+    return false;
+  }
+
+  if (normalizedA === normalizedB) {
+    return true;
+  }
+
+  const wordsA = new Set(importantWords(normalizedA));
+  const wordsB = new Set(importantWords(normalizedB));
+  const smallerSize = Math.min(wordsA.size, wordsB.size);
+
+  if (smallerSize === 0) {
+    return false;
+  }
+
+  const overlap = [...wordsA].filter((word) => wordsB.has(word)).length;
+  const overlapRatio = overlap / smallerSize;
+  const jaccard = overlap / new Set([...wordsA, ...wordsB]).size;
+
+  return overlap >= 3 && (overlapRatio >= 0.72 || jaccard >= 0.58);
+}
+
+function pickUniqueHook(candidates: string[], usedHooks: string[], fallbackCandidates: string[]) {
+  const allCandidates = [...candidates, ...fallbackCandidates].map((candidate) =>
+    sentence(cleanCaptionText(candidate)),
+  );
+
+  return (
+    allCandidates.find(
+      (candidate) => !usedHooks.some((usedHook) => areHooksSimilar(candidate, usedHook)),
+    ) ??
+    allCandidates[0] ??
+    "Show the useful part clearly."
+  );
+}
+
 function rotate<T>(values: T[], amount: number) {
   if (values.length === 0) return values;
   const offset = amount % values.length;
@@ -537,133 +618,214 @@ function buildContext(
   };
 }
 
-function buildHooks(context: CaptionContext): GeneratedHook[] {
-  const { adapter, subNiche, pattern, direction, variant } = context;
-  const patternHooks: Record<PatternId, Partial<Record<number, string>>> = {
+function patternHookPool(context: CaptionContext) {
+  const { adapter, pattern } = context;
+
+  const pools: Record<PatternId, Partial<Record<string, string[]>>> = {
     "final-output": {
-      0: "The final result is only half the story.",
-      2: "One small change made the result feel cleaner.",
-      5: "Start with the strongest moment.",
+      "Curiosity hook": ["The final result makes more sense when you see this."],
+      "Result hook": ["One small change made the final version cleaner."],
+      "Direct statement hook": ["Start with the strongest moment."],
     },
     "behind-the-scenes": {
-      0: "The final result is only half the story.",
-      4: "Before the clean take, there was this.",
-      6: "This is the part the final clip does not show.",
+      "Curiosity hook": ["The clean version never shows the messy part."],
+      "BTS/process hook": ["Before the clean take, there was this."],
+      "Emotional hook": ["This took more patience than it looks."],
     },
     tutorial: {
-      1: "If you are learning this, start here.",
-      7: "Save this before your next session.",
-      9: "Keep this as your quick checklist.",
+      "Problem hook": ["If you are learning this, start with the simple version."],
+      "Tutorial hook": ["Break this into three parts and it becomes easier."],
+      "Save-worthy hook": ["Use this as a quick checklist."],
     },
     "mistake-fix": {
-      1: "This small mistake changes the whole result.",
-      3: "Fix this before adding more effort.",
-      9: "Save this before your next session.",
+      "Problem hook": ["This small mistake changes the whole result."],
+      "Mistake hook": [`Fix ${adapter.mistake} before doing more.`],
+      "Save-worthy hook": ["Save this before your next attempt."],
     },
     "before-after": {
-      0: "The difference is easier to see side by side.",
-      2: "One change made the after look cleaner.",
-      8: "More effort was not the answer.",
+      "Curiosity hook": ["The difference is easier to see side by side."],
+      "Result hook": ["One change made the after look cleaner."],
+      "Contrarian hook": ["More effort was not the answer."],
     },
     breakdown: {
-      0: "Most people see the result. Few see the structure.",
-      5: "The result works because the structure is clear.",
-      7: "Save this breakdown for later.",
+      "Curiosity hook": ["Most people see the result. Few see the structure."],
+      "Direct statement hook": ["The result works because the structure is clear."],
+      "Save-worthy hook": ["Save this breakdown for later."],
     },
     "quick-tip": {
-      2: "One small cue can change the result.",
-      7: "Try this before your next attempt.",
-      9: "Save this for your next session.",
+      "Result hook": ["One small cue can change the result."],
+      "Tutorial hook": ["Try this before your next attempt."],
+      "Save-worthy hook": ["Keep this cue for later."],
     },
     challenge: {
-      0: "A simple constraint made this more interesting.",
-      5: "The limit made the idea sharper.",
-      8: "Less freedom can create better content.",
+      "Curiosity hook": ["A simple constraint made this more interesting."],
+      "Direct statement hook": ["The limit made the idea sharper."],
+      "Contrarian hook": ["Less freedom can create better content."],
     },
     story: {
-      0: "The result is not the full story.",
-      6: "I used to skip this part.",
-      8: "Progress looked different than I expected.",
+      "Curiosity hook": ["The result is not the full story."],
+      "Emotional hook": ["I used to skip this part."],
+      "Contrarian hook": ["Progress looked different than I expected."],
     },
     comparison: {
-      0: "Same goal. Two very different versions.",
-      2: "This comparison makes the better choice obvious.",
-      8: "The cleaner option is not always the flashier one.",
+      "Curiosity hook": ["Same goal. Two very different versions."],
+      "Result hook": ["This comparison makes the better choice obvious."],
+      "Contrarian hook": ["The cleaner option is not always the flashier one."],
     },
     reaction: {
-      0: "I would change this now.",
-      6: "Old attempt. Better lesson.",
-      8: "Looking back made the lesson clearer.",
+      "Curiosity hook": ["I would change this now."],
+      "Emotional hook": ["Old attempt. Better lesson."],
+      "Contrarian hook": ["Looking back made the lesson clearer."],
     },
     repurpose: {
-      0: `One ${adapter.session} can become more than one post.`,
-      5: "Shoot once. Pull out more angles.",
-      9: "Save this before your next content batch.",
+      "Curiosity hook": [`One ${adapter.session} can become more than one post.`],
+      "Direct statement hook": ["Shoot once. Pull out more angles."],
+      "Save-worthy hook": ["Save this before your next content batch."],
     },
   };
-  const baseHooks = [
-    "The final result is only half the story.",
-    "This is the part most people skip.",
-    "One small change made this look cleaner.",
-    "Fix this before adding more effort.",
-    "Before the clean take, there was this.",
-    "Show the process. That is where the trust builds.",
-    "I used to think the final result was the content.",
-    "Save this before your next session.",
-    "More effort is not always the answer.",
-    "Keep this for your next attempt.",
-  ].map((hook, index) => patternHooks[pattern][index] ?? hook);
-  const directionHooks: Record<CreativeDirection, string[]> = {
-    balanced: baseHooks,
-    viral: [
-      "Most people only show the result.",
-      "This is why the post feels more watchable.",
-      "The clean version started with one messy moment.",
-      "One decision changed the whole clip.",
-      ...baseHooks.slice(4),
-    ],
-    emotional: [
-      "The clean result had a messy middle.",
-      `This is the part of ${subNiche} I wish people showed more.`,
-      "The failed attempt made the final version better.",
-      ...baseHooks.slice(3),
-    ],
-    educational: [
-      "Here is the checklist I would save.",
-      `Break this into three parts before your next attempt.`,
-      "The lesson is not the result. It is the cue you can repeat.",
-      ...baseHooks.slice(3),
-    ],
-    hinglish: [
-      "Final result clean hai, but process mein lesson hai.",
-      "Improve karna hai? Start with one clear cue.",
-      "More effort se pehle yeh mistake fix karo.",
-      ...baseHooks.slice(3),
-    ],
-    premium: [
-      "A polished result starts with a clearer process.",
-      `One decision made this ${adapter.subject} feel more intentional.`,
-      "The clean version came from a cleaner sequence.",
-      ...baseHooks.slice(3),
-    ],
-    bold: [
-      "Stop hiding the process. That is the content.",
-      "Fix this before you post the next version.",
-      "The result is not random. The process is visible.",
-      ...baseHooks.slice(3),
-    ],
-  };
-  const selectedHooks = dedupeGeneratedItems(
-    rotate(directionHooks[direction], variant).slice(0, 10),
-    (hook) => hook,
-  );
-  const hooks = hookCategories.map((category, index) => ({
-    key: category.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-    category,
-    text: cleanCaptionText(sentence(selectedHooks[index] ?? baseHooks[index % baseHooks.length])),
-  }));
 
-  return hooks;
+  return pools[pattern];
+}
+
+function directionHookPools(
+  context: CaptionContext,
+): Record<CreativeDirection, Record<string, string[]>> {
+  const { adapter } = context;
+
+  return {
+    balanced: {
+      "Curiosity hook": ["The final result is only half the story.", "There is a useful detail hiding in this."],
+      "Problem hook": ["This is the part most people skip.", "The process gets messy right before it gets clear."],
+      "Result hook": ["One small change made the result cleaner.", `This is what ${adapter.proof} looks like.`],
+      "Mistake hook": ["Fix the small mistake before doing more.", `Watch for ${adapter.mistake}.`],
+      "BTS/process hook": ["Before the clean take, there was this.", `The process matters more than the ${adapter.result}.`],
+      "Direct statement hook": ["Show the useful part clearly.", "Start with the strongest moment."],
+      "Emotional hook": ["The clean result had a messy middle.", "The process taught me more than the result."],
+      "Tutorial hook": ["Break it into three parts.", "Try this cue on your next attempt."],
+      "Contrarian hook": ["More effort is not always the answer.", "Cleaner process beats louder editing."],
+      "Save-worthy hook": ["Keep this for your next attempt.", "Save this as a quick reminder."],
+    },
+    viral: {
+      "Curiosity hook": ["Most people miss this part.", "The final result makes more sense after this."],
+      "Problem hook": ["This is why the result feels off.", "Do not skip this if you want a cleaner result."],
+      "Result hook": ["This one detail changes everything.", "One decision made the whole post stronger."],
+      "Mistake hook": ["This mistake is easier to fix than you think.", "Fix this before you add more effort."],
+      "BTS/process hook": ["The clean version started with a messy moment.", "The best part happened before the final take."],
+      "Direct statement hook": ["Watch the decision, not just the result.", "This is the part worth showing."],
+      "Emotional hook": ["The result looks easy because the messy part is hidden.", "The real lesson happened before it looked clean."],
+      "Tutorial hook": ["Steal this simple structure.", "Use this if you want the result to make sense."],
+      "Contrarian hook": ["The final clip is not the most useful part.", "Perfect results can make boring content."],
+      "Save-worthy hook": ["Save this before you try again.", "Keep this as your quick reset."],
+    },
+    emotional: {
+      "Curiosity hook": ["The clean version never shows the messy part.", "This took more patience than it looks."],
+      "Problem hook": ["I kept missing the same small detail.", "The hard part was staying with the process."],
+      "Result hook": ["The result finally made sense after the correction.", "The clean take came from the messy attempts."],
+      "Mistake hook": ["The mistake taught me more than the final version.", "Before it improved, it felt confusing."],
+      "BTS/process hook": ["The process taught me more than the result.", "This is the part I usually forget to show."],
+      "Direct statement hook": ["The middle matters.", "Show the attempt, not just the win."],
+      "Emotional hook": ["I used to hide this part.", "This felt messy before it felt clean."],
+      "Tutorial hook": ["Here is the lesson I would keep.", "This is what I would remember next time."],
+      "Contrarian hook": ["The failed attempt was not wasted.", "The slow part made the result better."],
+      "Save-worthy hook": ["Save this for the days it feels messy.", "Keep this reminder for your next session."],
+    },
+    educational: {
+      "Curiosity hook": ["Here is the simple structure behind this.", "The result gets easier when you see the system."],
+      "Problem hook": ["This is the detail most beginners miss.", "The mistake usually starts before the final take."],
+      "Result hook": ["One cue made the result easier to repeat.", "A cleaner structure creates a cleaner result."],
+      "Mistake hook": ["Fix the setup before fixing the outcome.", "Do not add more until this part is clear."],
+      "BTS/process hook": ["The process breaks down into three parts.", "Setup, correction, result. That is the sequence."],
+      "Direct statement hook": ["Use this as the framework.", "Teach the detail, then show the result."],
+      "Emotional hook": ["The lesson is in the correction.", "Progress feels easier when the process is clear."],
+      "Tutorial hook": ["Break this into three parts and it becomes easier.", "Use this as a quick checklist."],
+      "Contrarian hook": ["The result is not the lesson. The repeatable cue is.", "More examples will not fix an unclear structure."],
+      "Save-worthy hook": ["Save this checklist for later.", "Keep this framework for your next attempt."],
+    },
+    hinglish: {
+      "Curiosity hook": ["Final result se zyada process matter karta hai.", "Clean take ke pehle messy attempts hote hain."],
+      "Problem hook": ["Yeh part skip karoge toh result weak lagega.", "Galti chhoti hai, but impact bada hai."],
+      "Result hook": ["Ek small change se result clean dikhta hai.", "Process clear hota hai toh result better dikhta hai."],
+      "Mistake hook": ["More effort se pehle yeh mistake fix karo.", "Yeh cue miss mat karna."],
+      "BTS/process hook": ["Clean take ke pehle practice hoti hai.", "Behind the result, actual lesson yahan hai."],
+      "Direct statement hook": ["Pehle process dikhao.", "Result ke saath reason bhi dikhao."],
+      "Emotional hook": ["Messy part bhi journey ka part hai.", "Clean result ke peeche patience hota hai."],
+      "Tutorial hook": ["Ye step save kar lena, kaam aayega.", "Isko teen parts mein break karo."],
+      "Contrarian hook": ["Perfect take se zyada process useful hai.", "Sirf result dikhana enough nahi hai."],
+      "Save-worthy hook": ["Isko next session ke liye save kar lo.", "Ye checklist kaam aayegi."],
+    },
+    premium: {
+      "Curiosity hook": ["A stronger result starts with a clearer decision.", "There is a quieter detail behind the polish."],
+      "Problem hook": ["The result improves when the process is less noisy.", "A polished output still needs a clear foundation."],
+      "Result hook": ["One refined choice made the result feel intentional.", "The final version works because the sequence is clean."],
+      "Mistake hook": ["The mistake was subtle, but the correction changed everything.", "Refinement starts with removing the weak point."],
+      "BTS/process hook": ["The process is what gives the result weight.", "The polished version came from a cleaner sequence."],
+      "Direct statement hook": ["Make the decision visible.", "Let the structure carry the result."],
+      "Emotional hook": ["The quiet work is what makes the result believable.", "The process is where the trust is built."],
+      "Tutorial hook": ["Here is the refined structure.", "Use this as a cleaner way to frame the lesson."],
+      "Contrarian hook": ["Polish without process feels empty.", "A premium result does not need a louder edit."],
+      "Save-worthy hook": ["Save this as a cleaner posting framework.", "Keep this structure for your next piece."],
+    },
+    bold: {
+      "Curiosity hook": ["Stop making this harder than it needs to be.", "This is the part worth repeating."],
+      "Problem hook": ["Your result improves when your process gets cleaner.", "The issue is not effort. It is the process."],
+      "Result hook": ["Clean process. Cleaner result.", "One clear decision made this work."],
+      "Mistake hook": ["Fix this before doing more.", "Stop repeating the same weak setup."],
+      "BTS/process hook": ["Show the process or the result feels empty.", "The behind-the-scenes part is the proof."],
+      "Direct statement hook": ["Show the proof.", "Make the correction obvious."],
+      "Emotional hook": ["The messy part is not embarrassing. It is useful.", "Do not hide the part that teaches."],
+      "Tutorial hook": ["Use the cue. Repeat the result.", "Break it down or lose the lesson."],
+      "Contrarian hook": ["More effort will not fix a messy process.", "Perfect results can teach nothing."],
+      "Save-worthy hook": ["Save this and try it once.", "Keep this before you make the next version."],
+    },
+  };
+}
+
+function universalHookFallbacks(context: CaptionContext) {
+  const { adapter } = context;
+
+  return [
+    "The useful part is easier to miss than the result.",
+    "A cleaner process makes the result easier to trust.",
+    "Small corrections create better posts.",
+    "Show the attempt people can learn from.",
+    "The result works because the middle changed.",
+    `This is where ${adapter.proof} starts.`,
+    "Make the lesson visible.",
+    "Turn the messy part into the useful part.",
+    "One clear cue is enough to make this better.",
+    "The process gives the result a reason.",
+  ];
+}
+
+function buildHooks(context: CaptionContext): GeneratedHook[] {
+  const pools = directionHookPools(context);
+  const patternPools = patternHookPool(context);
+  const usedHooks: string[] = [];
+
+  return hookCategories.map((category, index) => {
+    const candidates = rotate(
+      [
+        ...pools[context.direction][category],
+        ...(patternPools[category] ?? []),
+      ],
+      context.variant + index,
+    );
+    const fallbackCandidates = rotate(
+      [
+        ...Object.values(pools[context.direction]).flat(),
+        ...universalHookFallbacks(context),
+      ],
+      context.variant + index,
+    );
+    const text = pickUniqueHook(candidates, usedHooks, fallbackCandidates);
+    usedHooks.push(text);
+
+    return {
+      key: category.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+      category,
+      text,
+    };
+  });
 }
 
 function buildCtas(context: CaptionContext): GeneratedCta[] {
@@ -814,8 +976,16 @@ function captionBody(context: CaptionContext, type: string, hook: string) {
   const takeaway = sentence(fallbackCaptionAngle(context));
   const promise = patternPromise(context);
   const shorter = remix === "shorter";
-  const emotional = direction === "emotional" || remix === "emotional";
-  const direct = direction === "bold" || remix === "direct";
+  const effectiveDirection =
+    remix === "emotional"
+      ? "emotional"
+      : remix === "educational"
+        ? "educational"
+        : remix === "hinglish"
+          ? "hinglish"
+          : remix === "direct"
+            ? "bold"
+            : direction;
 
   if (shorter) {
     return cleanCaptionText(
@@ -823,14 +993,52 @@ function captionBody(context: CaptionContext, type: string, hook: string) {
     );
   }
 
+  const directionBodies: Partial<Record<CreativeDirection, Partial<Record<string, string>>>> = {
+    viral: {
+      Simple: `Most people scroll past the final result.\n\nThey stop when they understand the decision behind it.\n\nThat is the angle I would use.`,
+      "Viral / punchy": `Result first.\nThen the mistake.\nThen the fix.\n\nThat is the whole reel.`,
+      "BTS / process": `The final clip is not enough.\n\nShow the moment before it worked. That is the part people remember.`,
+    },
+    emotional: {
+      Simple: `I used to hide the messy part.\n\nNow I think that is the part people actually connect with.`,
+      Emotional: `The clean version looks simple from the outside.\n\nBut the real story is the patience before it finally clicked.`,
+      "BTS / process": `The process was not smooth.\n\nThat is why it feels real.`,
+    },
+    educational: {
+      Simple: `Here is the simple structure:\nResult. Detail. Repeatable action.\n\nThat is enough to make the post useful.`,
+      Educational: `Use this as a checklist:\n1. Show the outcome.\n2. Point out the key detail.\n3. Give one cue people can try.\n\nThat is what makes it save-worthy.`,
+      "Save-worthy": `Save this framework:\n- Result first.\n- One useful detail.\n- One action to repeat.\n\nKeep it simple.`,
+    },
+    hinglish: {
+      Simple: `Final result dikhana easy hai.\nProcess dikhana trust build karta hai.`,
+      Hinglish: `Clean take ke pehle messy attempts hote hain.\n\nSetup dikhao. Mistake dikhao. Correction dikhao.\nResult automatically better lagega.`,
+      "Save-worthy": `Ye step save kar lena.\nNext session mein kaam aayega.`,
+    },
+    premium: {
+      Simple: `The result feels stronger when the process is clear.\n\nShow the decision that made it intentional.`,
+      "BTS / process": `The polished version came from a cleaner sequence.\n\nThat process is the real value.`,
+      Educational: `A useful post needs three things:\nA clear result, a precise detail, and one repeatable takeaway.`,
+    },
+    bold: {
+      Simple: `Do not hide the useful part.\n\nShow the proof. Name the fix. Give one action.`,
+      "Bold / direct": `Stop making the result do all the work.\n\nThe process is the proof.`,
+      "Contrarian hook": `More effort will not fix an unclear process.`,
+    },
+  };
+  const directionBody = directionBodies[effectiveDirection]?.[type];
+
+  if (directionBody) {
+    return cleanCaptionText(directionBody);
+  }
+
   const bodies: Record<string, string> = {
     Simple: `Result first. Process second. Lesson last.\n\nThat is what makes this worth watching.\n\n${takeaway}`,
     "Viral / punchy": `Most people show the result.\nVery few show the decision that made it work.\n\nThat is where the post gets interesting.`,
-    Emotional: `${emotional ? "The honest part:" : "I used to think the final result was the content."}\n\nNow I am realizing the process is what people connect with.\n\nThe miss, the correction, the cleaner attempt - that is the story.`,
+    Emotional: `I used to think the final result was the content.\n\nNow I am realizing the process is what people connect with.\n\nThe miss, the correction, the cleaner attempt - that is the story.`,
     Educational: `Here is the structure:\n1. Show the result.\n2. Explain the key detail.\n3. Give one action viewers can repeat.\n\nSimple, useful, and easy to save.`,
     Storytelling: `This started as a simple ${subNiche} idea.\n\nThe useful part came from the middle: the setup, the correction, and the moment it finally clicked.\n\nThat is the part I would show more often.`,
     Hinglish: `Final result dikhana easy hai.\nProcess dikhana trust build karta hai.\n\nSetup, mistake, correction, clean finish.\nBas itna clear rakho.`,
-    "Bold / direct": `${direct ? "Straight answer:" : "Simple truth:"} ${sentence(promise)}\n\nDo not hide the useful part.\nShow the proof.\nName the correction.\nGive people one thing to try.`,
+    "Bold / direct": `Simple truth: ${sentence(promise)}\n\nDo not hide the useful part.\nShow the proof.\nName the correction.\nGive people one thing to try.`,
     "Community / engagement": `${hook}\n\nI am curious how other creators would frame this.\n\nWould you lead with the result, the mistake, or the process?`,
     "BTS / process": `The final ${adapter.result} is only the last frame.\n\nThe better story is the process: ${adapter.process}.\n\nThat is what makes the result feel real.`,
     "Save-worthy": `Save this as a quick checklist:\n- Start with the strongest moment.\n- Show the process.\n- Name the key detail.\n- End with one clear action.\n\nThat is enough to make the post useful.`,
@@ -868,6 +1076,62 @@ function buildCaptions(
   });
 }
 
+function qualityCheckCaptionSet(captionSet: CaptionSet, context: CaptionContext): CaptionSet {
+  const pools = directionHookPools(context);
+  const usedHooks: string[] = [];
+  const hooks = captionSet.hooks.map((hook, index) => {
+    const fallbackCandidates = rotate(
+      [
+        ...pools[context.direction][hook.category],
+        ...Object.values(pools[context.direction]).flat(),
+        ...universalHookFallbacks(context),
+      ],
+      context.variant + index + 3,
+    );
+    const text = usedHooks.some((usedHook) => areHooksSimilar(hook.text, usedHook))
+      ? pickUniqueHook([], usedHooks, fallbackCandidates)
+      : sentence(cleanCaptionText(hook.text));
+
+    usedHooks.push(text);
+
+    return { ...hook, text };
+  });
+  const seenCaptionBodies = new Set<string>();
+  const captions = captionSet.captions.map((caption) => {
+    const body = cleanCaptionText(caption.body);
+    const bodyKey = normalizeHook(body);
+    const uniqueBody = seenCaptionBodies.has(bodyKey)
+      ? cleanCaptionText(`${body}\n\nTry a different opening angle: ${caption.hook}`)
+      : body;
+
+    seenCaptionBodies.add(normalizeHook(uniqueBody));
+
+    return {
+      ...caption,
+      hook:
+        hooks.find((hook) => hook.text === caption.hook)?.text ??
+        cleanCaptionText(caption.hook),
+      body: uniqueBody,
+      cta: cleanCaptionText(caption.cta),
+      hashtags: normalizeHashtags(caption.hashtags),
+    };
+  });
+
+  return {
+    ...captionSet,
+    hooks,
+    ctas: captionSet.ctas.map((cta) => ({
+      ...cta,
+      text: cleanCaptionText(cta.text),
+    })),
+    hashtagSets: captionSet.hashtagSets.map((set) => ({
+      ...set,
+      hashtags: normalizeHashtags(set.hashtags),
+    })),
+    captions,
+  };
+}
+
 export function generateCaptionSet(
   profile: CaptionProfile,
   idea: CaptionIdea,
@@ -885,13 +1149,13 @@ export function generateCaptionSet(
   const ctas = buildCtas(context);
   const hashtagSets = buildHashtagSets(context);
 
-  return {
+  return qualityCheckCaptionSet({
     direction,
     hooks,
     ctas,
     hashtagSets,
     captions: buildCaptions(context, hooks, ctas, hashtagSets),
-  };
+  }, context);
 }
 
 export const creativeDirectionOptions: Array<{
