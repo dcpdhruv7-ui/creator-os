@@ -2,11 +2,26 @@
 
 import { revalidatePath } from "next/cache";
 
+import { captionFingerprint } from "@/lib/caption-fingerprint";
 import { createClient } from "@/lib/supabase/server";
+
+export type SavedCaptionPayload = {
+  id: string;
+  content_idea_id: string | null;
+  relatedIdeaTitle: string;
+  caption_type: string | null;
+  hook: string | null;
+  body: string | null;
+  cta: string | null;
+  hashtags: string | null;
+  created_at: string | null;
+};
 
 export type SaveCaptionState = {
   status: "idle" | "success" | "error";
   message: string;
+  savedCaption?: SavedCaptionPayload;
+  savedCaptions?: SavedCaptionPayload[];
 };
 
 function field(formData: FormData, name: string) {
@@ -14,7 +29,7 @@ function field(formData: FormData, name: string) {
 }
 
 export async function saveCaption(
-  _previousState: SaveCaptionState,
+  previousState: SaveCaptionState,
   formData: FormData,
 ): Promise<SaveCaptionState> {
   const contentIdeaId = field(formData, "content_idea_id");
@@ -42,7 +57,7 @@ export async function saveCaption(
 
   const { data: idea, error: ideaError } = await supabase
     .from("content_ideas")
-    .select("id")
+    .select("id, title")
     .eq("id", contentIdeaId)
     .eq("user_id", user.id)
     .maybeSingle();
@@ -56,15 +71,12 @@ export async function saveCaption(
     };
   }
 
-  const { data: duplicate, error: duplicateError } = await supabase
+  const { data: existingCaptions, error: duplicateError } = await supabase
     .from("captions")
-    .select("id")
+    .select("id, content_idea_id, caption_type, hook, body, cta, hashtags, created_at")
     .eq("user_id", user.id)
     .eq("content_idea_id", contentIdeaId)
-    .eq("caption_type", captionType)
-    .eq("body", body)
-    .limit(1)
-    .maybeSingle();
+    .eq("caption_type", captionType);
 
   if (duplicateError) {
     console.error("Caption duplicate check failed:", duplicateError.message);
@@ -75,22 +87,43 @@ export async function saveCaption(
     };
   }
 
-  if (duplicate) {
-    return {
-      status: "success",
-      message: "That caption is already in your caption bank.",
-    };
-  }
-
-  const { error: insertError } = await supabase.from("captions").insert({
-    user_id: user.id,
+  const nextFingerprint = captionFingerprint({
     content_idea_id: contentIdeaId,
     caption_type: captionType,
     hook,
     body,
-    cta,
-    hashtags,
   });
+  const duplicate = (existingCaptions ?? []).find(
+    (caption) => captionFingerprint(caption) === nextFingerprint,
+  );
+
+  if (duplicate) {
+    const savedCaption = {
+      ...duplicate,
+      relatedIdeaTitle: idea.title,
+    };
+
+    return {
+      status: "success",
+      message: "This caption is already saved.",
+      savedCaption,
+      savedCaptions: [savedCaption, ...(previousState.savedCaptions ?? [])],
+    };
+  }
+
+  const { data: insertedCaption, error: insertError } = await supabase
+    .from("captions")
+    .insert({
+      user_id: user.id,
+      content_idea_id: contentIdeaId,
+      caption_type: captionType,
+      hook,
+      body,
+      cta,
+      hashtags,
+    })
+    .select("id, content_idea_id, caption_type, hook, body, cta, hashtags, created_at")
+    .single();
 
   if (insertError) {
     console.error("Caption save failed:", insertError.message);
@@ -104,8 +137,15 @@ export async function saveCaption(
   revalidatePath("/captions");
   revalidatePath("/dashboard");
 
+  const savedCaption = {
+    ...insertedCaption,
+    relatedIdeaTitle: idea.title,
+  };
+
   return {
     status: "success",
     message: "Caption saved to your caption bank.",
+    savedCaption,
+    savedCaptions: [savedCaption, ...(previousState.savedCaptions ?? [])],
   };
 }

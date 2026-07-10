@@ -17,6 +17,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { captionFingerprint } from "@/lib/caption-fingerprint";
 import {
   creativeDirectionOptions,
   describeCreativeDirection,
@@ -83,13 +84,13 @@ function CopyButton({ value, label = "Copy" }: { value: string; label?: string }
   );
 }
 
-function SaveCaptionButton() {
+function SaveCaptionButton({ saved }: { saved: boolean }) {
   const { pending } = useFormStatus();
 
   return (
-    <Button disabled={pending} size="sm" type="submit">
-      {pending ? <LoaderCircle className="animate-spin" /> : <Save />}
-      {pending ? "Saving..." : "Save caption"}
+    <Button disabled={pending || saved} size="sm" type="submit" variant={saved ? "secondary" : "default"}>
+      {saved ? <Check /> : pending ? <LoaderCircle className="animate-spin" /> : <Save />}
+      {saved ? "Saved" : pending ? "Saving..." : "Save caption"}
     </Button>
   );
 }
@@ -98,6 +99,34 @@ function captionToClipboard(caption: GeneratedCaption) {
   return [caption.hook, caption.body, caption.cta, caption.hashtags]
     .filter(Boolean)
     .join("\n\n");
+}
+
+function savedCaptionKey(caption: SavedCaption) {
+  return captionFingerprint(caption);
+}
+
+function generatedCaptionKey(contentIdeaId: string, caption: GeneratedCaption) {
+  return captionFingerprint({
+    content_idea_id: contentIdeaId,
+    caption_type: caption.caption_type,
+    hook: caption.hook,
+    body: caption.body,
+  });
+}
+
+function dedupeSavedCaptions(captions: SavedCaption[]) {
+  const seen = new Set<string>();
+
+  return captions.filter((caption) => {
+    const key = savedCaptionKey(caption);
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
 }
 
 export function CaptionWorkspace({
@@ -116,6 +145,21 @@ export function CaptionWorkspace({
     () => ideas.find((idea) => idea.id === selectedIdeaId) ?? ideas[0],
     [ideas, selectedIdeaId],
   );
+  const visibleSavedCaptions = useMemo(
+    () => dedupeSavedCaptions([...(state.savedCaptions ?? []), ...savedCaptions]),
+    [savedCaptions, state.savedCaptions],
+  );
+  const selectedIdeaSavedCaptions = useMemo(
+    () =>
+      visibleSavedCaptions.filter(
+        (caption) => caption.content_idea_id === selectedIdea?.id,
+      ),
+    [selectedIdea?.id, visibleSavedCaptions],
+  );
+  const savedCaptionKeys = useMemo(
+    () => new Set(visibleSavedCaptions.map((caption) => savedCaptionKey(caption))),
+    [visibleSavedCaptions],
+  );
 
   function nextCaptionSet(remix: RemixMode, direction = creativeDirection) {
     if (!selectedIdea) {
@@ -124,11 +168,23 @@ export function CaptionWorkspace({
 
     const nextVariant = variant + 1;
     setVariant(nextVariant);
+    const currentHooks = captionSet?.hooks.map((hook) => hook.text) ?? [];
+    const currentCaptions =
+      captionSet?.captions.map((caption) => ({
+        hook: caption.hook,
+        body: caption.body,
+      })) ?? [];
+    const savedCaptionsForIdea = selectedIdeaSavedCaptions.map((caption) => ({
+      hook: caption.hook,
+      body: caption.body,
+    }));
 
     return generateCaptionSet(profile, selectedIdea, {
       direction,
       remix,
       variant: nextVariant,
+      excludeHooks: currentHooks,
+      excludeCaptions: [...currentCaptions, ...savedCaptionsForIdea],
     });
   }
 
@@ -371,57 +427,63 @@ export function CaptionWorkspace({
                 </CardHeader>
                 <CardContent>
                   <div className="grid gap-4">
-                    {captionSet.captions.map((caption) => (
-                      <div
-                        className="rounded-lg border border-white/10 bg-white/[0.025] p-5"
-                        key={caption.key}
-                      >
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                          <div>
-                            <p className="text-xs text-emerald-300">
-                              {caption.caption_type}
-                            </p>
-                            <h4 className="mt-2 text-lg font-semibold leading-6 text-white">
-                              {caption.hook}
-                            </h4>
+                    {captionSet.captions.map((caption) => {
+                      const isSaved = savedCaptionKeys.has(
+                        generatedCaptionKey(selectedIdea.id, caption),
+                      );
+
+                      return (
+                        <div
+                          className="rounded-lg border border-white/10 bg-white/[0.025] p-5"
+                          key={caption.key}
+                        >
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div>
+                              <p className="text-xs text-emerald-300">
+                                {caption.caption_type}
+                              </p>
+                              <h4 className="mt-2 text-lg font-semibold leading-6 text-white">
+                                {caption.hook}
+                              </h4>
+                            </div>
+                            <CopyButton
+                              label="Copy caption"
+                              value={captionToClipboard(caption)}
+                            />
                           </div>
-                          <CopyButton
-                            label="Copy caption"
-                            value={captionToClipboard(caption)}
-                          />
+                          <div className="mt-5 space-y-4 text-sm leading-6 text-zinc-300">
+                            <p className="whitespace-pre-line">{caption.body}</p>
+                            <p>
+                              <span className="text-zinc-600">CTA: </span>
+                              {caption.cta}
+                            </p>
+                            <p>
+                              <span className="text-zinc-600">
+                                {caption.hashtag_category}:{" "}
+                              </span>
+                              <span className="text-emerald-200/90">{caption.hashtags}</span>
+                            </p>
+                          </div>
+                          <form action={formAction} className="mt-5 flex justify-end">
+                            <input
+                              name="content_idea_id"
+                              type="hidden"
+                              value={selectedIdea.id}
+                            />
+                            <input
+                              name="caption_type"
+                              type="hidden"
+                              value={caption.caption_type}
+                            />
+                            <input name="hook" type="hidden" value={caption.hook} />
+                            <input name="body" type="hidden" value={caption.body} />
+                            <input name="cta" type="hidden" value={caption.cta} />
+                            <input name="hashtags" type="hidden" value={caption.hashtags} />
+                            <SaveCaptionButton saved={isSaved} />
+                          </form>
                         </div>
-                        <div className="mt-5 space-y-4 text-sm leading-6 text-zinc-300">
-                          <p className="whitespace-pre-line">{caption.body}</p>
-                          <p>
-                            <span className="text-zinc-600">CTA: </span>
-                            {caption.cta}
-                          </p>
-                          <p>
-                            <span className="text-zinc-600">
-                              {caption.hashtag_category}:{" "}
-                            </span>
-                            <span className="text-emerald-200/90">{caption.hashtags}</span>
-                          </p>
-                        </div>
-                        <form action={formAction} className="mt-5 flex justify-end">
-                          <input
-                            name="content_idea_id"
-                            type="hidden"
-                            value={selectedIdea.id}
-                          />
-                          <input
-                            name="caption_type"
-                            type="hidden"
-                            value={caption.caption_type}
-                          />
-                          <input name="hook" type="hidden" value={caption.hook} />
-                          <input name="body" type="hidden" value={caption.body} />
-                          <input name="cta" type="hidden" value={caption.cta} />
-                          <input name="hashtags" type="hidden" value={caption.hashtags} />
-                          <SaveCaptionButton />
-                        </form>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </CardContent>
               </Card>
@@ -494,13 +556,16 @@ export function CaptionWorkspace({
         <div>
           <h3 className="text-lg font-semibold text-white">Saved Captions</h3>
           <p className="mt-1 text-sm text-zinc-400">
-            {savedCaptions.length} saved caption{savedCaptions.length === 1 ? "" : "s"}
+            {visibleSavedCaptions.length} saved caption{visibleSavedCaptions.length === 1 ? "" : "s"}
+          </p>
+          <p className="mt-2 text-sm text-zinc-500">
+            Saved captions stay in your caption bank. Regenerate to explore new versions.
           </p>
         </div>
 
-        {savedCaptions.length > 0 ? (
+        {visibleSavedCaptions.length > 0 ? (
           <div className="mt-5 grid gap-4 lg:grid-cols-2">
-            {savedCaptions.map((caption) => (
+            {visibleSavedCaptions.map((caption) => (
               <Card key={caption.id}>
                 <CardHeader>
                   <p className="text-xs text-emerald-300">

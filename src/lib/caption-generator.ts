@@ -1,3 +1,5 @@
+import { captionFingerprint, normalizeCaptionMatchText } from "@/lib/caption-fingerprint";
+
 export type CaptionProfile = {
   niche: string;
   subNiche: string;
@@ -119,6 +121,8 @@ type CaptionContext = {
   goal: string;
   originalHook: string;
   shotList: string;
+  excludeHooks: string[];
+  excludeCaptions: Array<{ hook?: string | null; body: string | null }>;
 };
 
 const directionLabels: Record<CreativeDirection, string> = {
@@ -509,9 +513,7 @@ function pickUniqueHook(candidates: string[], usedHooks: string[], fallbackCandi
   return (
     allCandidates.find(
       (candidate) => !usedHooks.some((usedHook) => areHooksSimilar(candidate, usedHook)),
-    ) ??
-    allCandidates[0] ??
-    "Show the useful part clearly."
+    ) ?? null
   );
 }
 
@@ -595,6 +597,8 @@ function buildContext(
   direction: CreativeDirection,
   remix: RemixMode,
   variant: number,
+  excludeHooks: string[],
+  excludeCaptions: Array<{ hook?: string | null; body: string | null }>,
 ): CaptionContext {
   const niche = clean(idea.niche, profile.niche);
   const subNiche = humanizeSubNiche(clean(idea.sub_niche, profile.subNiche));
@@ -615,6 +619,8 @@ function buildContext(
     goal: clean(idea.goal, "Growth"),
     originalHook: clean(idea.hook, `Here is a ${subNiche} idea worth testing.`),
     shotList: clean(idea.shot_list, `Show the result, reveal the process, and end with ${adapter.proof}.`),
+    excludeHooks,
+    excludeCaptions,
   };
 }
 
@@ -800,9 +806,9 @@ function universalHookFallbacks(context: CaptionContext) {
 function buildHooks(context: CaptionContext): GeneratedHook[] {
   const pools = directionHookPools(context);
   const patternPools = patternHookPool(context);
-  const usedHooks: string[] = [];
+  const usedHooks = [...context.excludeHooks];
 
-  return hookCategories.map((category, index) => {
+  return hookCategories.flatMap((category, index) => {
     const candidates = rotate(
       [
         ...pools[context.direction][category],
@@ -818,6 +824,11 @@ function buildHooks(context: CaptionContext): GeneratedHook[] {
       context.variant + index,
     );
     const text = pickUniqueHook(candidates, usedHooks, fallbackCandidates);
+
+    if (!text) {
+      return [];
+    }
+
     usedHooks.push(text);
 
     return {
@@ -1057,18 +1068,47 @@ function buildCaptions(
   const rotatedCtas = rotate(ctas, context.variant);
   const rotatedHashtags = rotate(hashtagSets, context.variant);
 
+  const excludedCaptionKeys = new Set(
+    context.excludeCaptions.map((caption) =>
+      captionFingerprint({
+        content_idea_id: context.idea.id,
+        caption_type: "",
+        hook: caption.hook,
+        body: caption.body,
+      }),
+    ),
+  );
+  const seenGeneratedCaptionKeys = new Set<string>();
+
   return dedupeGeneratedItems(captionTypes, (captionType) =>
     captionBody(context, captionType, ""),
-  ).map((captionType, index) => {
+  ).flatMap((captionType, index) => {
+    if (rotatedHooks.length === 0 || rotatedCtas.length === 0 || rotatedHashtags.length === 0) {
+      return [];
+    }
+
     const hook = rotatedHooks[index % rotatedHooks.length];
     const cta = rotatedCtas[index % rotatedCtas.length];
     const hashtagSet = rotatedHashtags[index % rotatedHashtags.length];
+    const body = captionBody(context, captionType, hook.text);
+    const captionKey = captionFingerprint({
+      content_idea_id: context.idea.id,
+      caption_type: "",
+      hook: hook.text,
+      body,
+    });
+
+    if (excludedCaptionKeys.has(captionKey) || seenGeneratedCaptionKeys.has(captionKey)) {
+      return [];
+    }
+
+    seenGeneratedCaptionKeys.add(captionKey);
 
     return {
       key: captionType.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
       caption_type: captionType,
       hook: cleanCaptionText(hook.text),
-      body: captionBody(context, captionType, hook.text),
+      body,
       cta: cleanCaptionText(cta.text),
       hashtags: normalizeHashtags(hashtagSet.hashtags),
       hashtag_category: hashtagSet.category,
@@ -1078,8 +1118,8 @@ function buildCaptions(
 
 function qualityCheckCaptionSet(captionSet: CaptionSet, context: CaptionContext): CaptionSet {
   const pools = directionHookPools(context);
-  const usedHooks: string[] = [];
-  const hooks = captionSet.hooks.map((hook, index) => {
+  const usedHooks = [...context.excludeHooks];
+  const hooks = captionSet.hooks.flatMap((hook, index) => {
     const fallbackCandidates = rotate(
       [
         ...pools[context.direction][hook.category],
@@ -1092,14 +1132,39 @@ function qualityCheckCaptionSet(captionSet: CaptionSet, context: CaptionContext)
       ? pickUniqueHook([], usedHooks, fallbackCandidates)
       : sentence(cleanCaptionText(hook.text));
 
+    if (!text) {
+      return [];
+    }
+
     usedHooks.push(text);
 
     return { ...hook, text };
   });
+  const excludedCaptionKeys = new Set(
+    context.excludeCaptions.map((caption) =>
+      captionFingerprint({
+        content_idea_id: context.idea.id,
+        caption_type: "",
+        hook: caption.hook,
+        body: caption.body,
+      }),
+    ),
+  );
   const seenCaptionBodies = new Set<string>();
-  const captions = captionSet.captions.map((caption) => {
+  const captions = captionSet.captions.flatMap((caption) => {
     const body = cleanCaptionText(caption.body);
     const bodyKey = normalizeHook(body);
+    const captionKey = captionFingerprint({
+      content_idea_id: context.idea.id,
+      caption_type: "",
+      hook: caption.hook,
+      body,
+    });
+
+    if (excludedCaptionKeys.has(captionKey)) {
+      return [];
+    }
+
     const uniqueBody = seenCaptionBodies.has(bodyKey)
       ? cleanCaptionText(`${body}\n\nTry a different opening angle: ${caption.hook}`)
       : body;
@@ -1139,12 +1204,22 @@ export function generateCaptionSet(
     direction?: CreativeDirection;
     remix?: RemixMode;
     variant?: number;
+    excludeHooks?: string[];
+    excludeCaptions?: Array<{ hook?: string | null; body: string | null }>;
   } = {},
 ): CaptionSet {
   const direction = options.direction ?? "balanced";
   const remix = options.remix ?? "all";
   const variant = options.variant ?? 0;
-  const context = buildContext(profile, idea, direction, remix, variant);
+  const context = buildContext(
+    profile,
+    idea,
+    direction,
+    remix,
+    variant,
+    options.excludeHooks?.map((hook) => normalizeCaptionMatchText(hook)) ?? [],
+    options.excludeCaptions ?? [],
+  );
   const hooks = buildHooks(context);
   const ctas = buildCtas(context);
   const hashtagSets = buildHashtagSets(context);
