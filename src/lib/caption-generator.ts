@@ -1072,7 +1072,6 @@ function buildCaptions(
     context.excludeCaptions.map((caption) =>
       captionFingerprint({
         content_idea_id: context.idea.id,
-        caption_type: "",
         hook: caption.hook,
         body: caption.body,
       }),
@@ -1093,7 +1092,6 @@ function buildCaptions(
     const body = captionBody(context, captionType, hook.text);
     const captionKey = captionFingerprint({
       content_idea_id: context.idea.id,
-      caption_type: "",
       hook: hook.text,
       body,
     });
@@ -1144,7 +1142,6 @@ function qualityCheckCaptionSet(captionSet: CaptionSet, context: CaptionContext)
     context.excludeCaptions.map((caption) =>
       captionFingerprint({
         content_idea_id: context.idea.id,
-        caption_type: "",
         hook: caption.hook,
         body: caption.body,
       }),
@@ -1156,7 +1153,6 @@ function qualityCheckCaptionSet(captionSet: CaptionSet, context: CaptionContext)
     const bodyKey = normalizeHook(body);
     const captionKey = captionFingerprint({
       content_idea_id: context.idea.id,
-      caption_type: "",
       hook: caption.hook,
       body,
     });

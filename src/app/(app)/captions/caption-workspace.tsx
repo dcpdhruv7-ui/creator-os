@@ -13,6 +13,7 @@ import {
   Save,
   SlidersHorizontal,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -30,7 +31,14 @@ import {
   type RemixMode,
 } from "@/lib/caption-generator";
 import { cn } from "@/lib/utils";
-import { saveCaption, type SaveCaptionState } from "./actions";
+import {
+  clearCaptionsForIdea,
+  deleteCaption,
+  saveCaption,
+  type ClearCaptionsState,
+  type DeleteCaptionState,
+  type SaveCaptionState,
+} from "./actions";
 
 export type SavedCaption = {
   id: string;
@@ -51,6 +59,8 @@ type CaptionWorkspaceProps = {
 };
 
 const initialState: SaveCaptionState = { status: "idle", message: "" };
+const initialDeleteState: DeleteCaptionState = { status: "idle", message: "" };
+const initialClearState: ClearCaptionsState = { status: "idle", message: "" };
 
 const remixButtons: Array<{
   label: string;
@@ -95,6 +105,28 @@ function SaveCaptionButton({ saved }: { saved: boolean }) {
   );
 }
 
+function DeleteCaptionButton() {
+  const { pending } = useFormStatus();
+
+  return (
+    <Button disabled={pending} size="sm" type="submit" variant="secondary">
+      {pending ? <LoaderCircle className="animate-spin" /> : <Trash2 />}
+      {pending ? "Deleting..." : "Delete"}
+    </Button>
+  );
+}
+
+function ClearCaptionsButton() {
+  const { pending } = useFormStatus();
+
+  return (
+    <Button disabled={pending} size="sm" type="submit" variant="secondary">
+      {pending ? <LoaderCircle className="animate-spin" /> : <Trash2 />}
+      {pending ? "Clearing..." : "Clear all for this idea"}
+    </Button>
+  );
+}
+
 function captionToClipboard(caption: GeneratedCaption) {
   return [caption.hook, caption.body, caption.cta, caption.hashtags]
     .filter(Boolean)
@@ -108,25 +140,41 @@ function savedCaptionKey(caption: SavedCaption) {
 function generatedCaptionKey(contentIdeaId: string, caption: GeneratedCaption) {
   return captionFingerprint({
     content_idea_id: contentIdeaId,
-    caption_type: caption.caption_type,
     hook: caption.hook,
     body: caption.body,
+    cta: caption.cta,
+    hashtags: caption.hashtags,
   });
 }
 
 function dedupeSavedCaptions(captions: SavedCaption[]) {
   const seen = new Set<string>();
+  let hiddenCount = 0;
 
-  return captions.filter((caption) => {
+  const deduped = captions.filter((caption) => {
     const key = savedCaptionKey(caption);
 
     if (seen.has(key)) {
+      hiddenCount += 1;
       return false;
     }
 
     seen.add(key);
     return true;
   });
+
+  return { captions: deduped, hiddenCount };
+}
+
+function groupSavedCaptionsByIdea(captions: SavedCaption[]) {
+  const groups = new Map<string, SavedCaption[]>();
+
+  captions.forEach((caption) => {
+    const title = caption.relatedIdeaTitle || "Saved content idea";
+    groups.set(title, [...(groups.get(title) ?? []), caption]);
+  });
+
+  return [...groups.entries()].map(([title, captions]) => ({ title, captions }));
 }
 
 export function CaptionWorkspace({
@@ -138,17 +186,38 @@ export function CaptionWorkspace({
   const [captionSet, setCaptionSet] = useState<CaptionSet | null>(null);
   const [creativeDirection, setCreativeDirection] =
     useState<CreativeDirection>("balanced");
+  const [showAllSavedCaptions, setShowAllSavedCaptions] = useState(false);
   const [variant, setVariant] = useState(0);
   const [state, formAction] = useActionState(saveCaption, initialState);
+  const [deleteState, deleteAction] = useActionState(deleteCaption, initialDeleteState);
+  const [clearState, clearAction] = useActionState(
+    clearCaptionsForIdea,
+    initialClearState,
+  );
 
   const selectedIdea = useMemo(
     () => ideas.find((idea) => idea.id === selectedIdeaId) ?? ideas[0],
     [ideas, selectedIdeaId],
   );
-  const visibleSavedCaptions = useMemo(
-    () => dedupeSavedCaptions([...(state.savedCaptions ?? []), ...savedCaptions]),
-    [savedCaptions, state.savedCaptions],
+  const deletedCaptionIds = useMemo(
+    () =>
+      new Set([
+        ...(deleteState.deletedCaptionIds ?? []),
+        ...(clearState.deletedCaptionIds ?? []),
+      ]),
+    [clearState.deletedCaptionIds, deleteState.deletedCaptionIds],
   );
+  const dedupedSavedCaptionResult = useMemo(
+    () =>
+      dedupeSavedCaptions(
+        [...(state.savedCaptions ?? []), ...savedCaptions].filter(
+          (caption) => !deletedCaptionIds.has(caption.id),
+        ),
+      ),
+    [deletedCaptionIds, savedCaptions, state.savedCaptions],
+  );
+  const visibleSavedCaptions = dedupedSavedCaptionResult.captions;
+  const hiddenDuplicateCount = dedupedSavedCaptionResult.hiddenCount;
   const selectedIdeaSavedCaptions = useMemo(
     () =>
       visibleSavedCaptions.filter(
@@ -158,6 +227,10 @@ export function CaptionWorkspace({
   );
   const savedCaptionKeys = useMemo(
     () => new Set(visibleSavedCaptions.map((caption) => savedCaptionKey(caption))),
+    [visibleSavedCaptions],
+  );
+  const groupedSavedCaptions = useMemo(
+    () => groupSavedCaptionsByIdea(visibleSavedCaptions),
     [visibleSavedCaptions],
   );
 
@@ -202,6 +275,10 @@ export function CaptionWorkspace({
     }
   }
 
+  function confirmClearSelectedIdea() {
+    return window.confirm("Clear all saved captions for this idea?");
+  }
+
   function applyRemix(remix: RemixMode, direction = creativeDirection) {
     setCreativeDirection(direction);
 
@@ -228,6 +305,42 @@ export function CaptionWorkspace({
         hashtagSets: nextSet.hashtagSets,
       };
     });
+  }
+
+  function renderSavedCaptionCard(caption: SavedCaption) {
+    return (
+      <Card key={caption.id}>
+        <CardHeader>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-xs text-emerald-300">
+                {caption.caption_type ?? "Saved caption"}
+              </p>
+              <CardTitle className="mt-2 text-lg">{caption.hook}</CardTitle>
+              <p className="mt-2 text-xs text-zinc-600">
+                {caption.created_at
+                  ? new Date(caption.created_at).toLocaleDateString()
+                  : "Recently saved"}
+              </p>
+            </div>
+            <form action={deleteAction}>
+              <input name="caption_id" type="hidden" value={caption.id} />
+              <DeleteCaptionButton />
+            </form>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4 text-sm leading-6 text-zinc-300">
+            <p className="whitespace-pre-line">{caption.body}</p>
+            <p>
+              <span className="text-zinc-600">CTA: </span>
+              {caption.cta}
+            </p>
+            <p className="text-emerald-200/90">{caption.hashtags}</p>
+          </div>
+        </CardContent>
+      </Card>
+    );
   }
 
   return (
@@ -553,48 +666,87 @@ export function CaptionWorkspace({
       </div>
 
       <section className="border-t border-white/10 pt-8">
-        <div>
-          <h3 className="text-lg font-semibold text-white">Saved Captions</h3>
-          <p className="mt-1 text-sm text-zinc-400">
-            {visibleSavedCaptions.length} saved caption{visibleSavedCaptions.length === 1 ? "" : "s"}
-          </p>
-          <p className="mt-2 text-sm text-zinc-500">
-            Saved captions stay in your caption bank. Regenerate to explore new versions.
-          </p>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-white">Saved Captions</h3>
+            <p className="mt-1 text-sm text-zinc-400">
+              {showAllSavedCaptions
+                ? `${visibleSavedCaptions.length} saved caption${visibleSavedCaptions.length === 1 ? "" : "s"} total`
+                : `${selectedIdeaSavedCaptions.length} saved caption${selectedIdeaSavedCaptions.length === 1 ? "" : "s"} for this idea`}
+            </p>
+            <p className="mt-2 text-sm text-zinc-500">
+              Saved captions stay in your caption bank. You can delete old versions or regenerate new ones anytime.
+            </p>
+            {hiddenDuplicateCount > 0 ? (
+              <p className="mt-2 text-sm text-amber-200">
+                Duplicate saved captions hidden.
+              </p>
+            ) : null}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              onClick={() => setShowAllSavedCaptions((current) => !current)}
+              size="sm"
+              type="button"
+              variant="secondary"
+            >
+              {showAllSavedCaptions ? "Show selected idea only" : "Show all saved captions"}
+            </Button>
+            {!showAllSavedCaptions && selectedIdeaSavedCaptions.length > 0 ? (
+              <form action={clearAction} onSubmit={confirmClearSelectedIdea}>
+                <input name="content_idea_id" type="hidden" value={selectedIdea.id} />
+                <ClearCaptionsButton />
+              </form>
+            ) : null}
+          </div>
         </div>
 
-        {visibleSavedCaptions.length > 0 ? (
-          <div className="mt-5 grid gap-4 lg:grid-cols-2">
-            {visibleSavedCaptions.map((caption) => (
-              <Card key={caption.id}>
-                <CardHeader>
-                  <p className="text-xs text-emerald-300">
-                    {caption.caption_type ?? "Saved caption"}
-                  </p>
-                  <CardTitle className="text-lg">{caption.relatedIdeaTitle}</CardTitle>
-                  <p className="text-xs text-zinc-600">
-                    {caption.created_at
-                      ? new Date(caption.created_at).toLocaleDateString()
-                      : "Recently saved"}
-                  </p>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4 text-sm leading-6 text-zinc-300">
-                    <p className="font-medium text-zinc-100">{caption.hook}</p>
-                    <p className="whitespace-pre-line">{caption.body}</p>
-                    <p>
-                      <span className="text-zinc-600">CTA: </span>
-                      {caption.cta}
+        {[deleteState, clearState].map((actionState) =>
+          actionState.message ? (
+            <div
+              className={cn(
+                "mt-4 rounded-lg border px-4 py-3 text-sm",
+                actionState.status === "success"
+                  ? "border-emerald-300/25 bg-emerald-400/[0.08] text-emerald-100"
+                  : "border-red-400/25 bg-red-400/[0.08] text-red-100",
+              )}
+              key={`${actionState.status}-${actionState.message}`}
+              role={actionState.status === "error" ? "alert" : "status"}
+            >
+              {actionState.message}
+            </div>
+          ) : null,
+        )}
+
+        {showAllSavedCaptions ? (
+          groupedSavedCaptions.length > 0 ? (
+            <div className="mt-5 space-y-6">
+              {groupedSavedCaptions.map((group) => (
+                <div key={group.title}>
+                  <div className="mb-3">
+                    <h4 className="text-base font-semibold text-white">{group.title}</h4>
+                    <p className="mt-1 text-sm text-zinc-500">
+                      {group.captions.length} saved caption{group.captions.length === 1 ? "" : "s"}
                     </p>
-                    <p className="text-emerald-200/90">{caption.hashtags}</p>
                   </div>
-                </CardContent>
-              </Card>
-            ))}
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    {group.captions.map((caption) => renderSavedCaptionCard(caption))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-5 rounded-lg border border-white/10 bg-white/[0.025] p-6 text-sm text-zinc-500">
+              Saved captions will appear here.
+            </div>
+          )
+        ) : selectedIdeaSavedCaptions.length > 0 ? (
+          <div className="mt-5 grid gap-4 lg:grid-cols-2">
+            {selectedIdeaSavedCaptions.map((caption) => renderSavedCaptionCard(caption))}
           </div>
         ) : (
           <div className="mt-5 rounded-lg border border-white/10 bg-white/[0.025] p-6 text-sm text-zinc-500">
-            Saved captions will appear here.
+            Saved captions for this idea will appear here.
           </div>
         )}
       </section>

@@ -1,8 +1,9 @@
 export type CaptionFingerprintInput = {
   content_idea_id?: string | null;
-  caption_type?: string | null;
   hook?: string | null;
   body?: string | null;
+  cta?: string | null;
+  hashtags?: string | null;
 };
 
 export function normalizeCaptionMatchText(value: string | null | undefined) {
@@ -18,8 +19,9 @@ export function normalizeCaptionMatchText(value: string | null | undefined) {
 export function captionFingerprint(input: CaptionFingerprintInput) {
   return [
     input.content_idea_id ?? "",
-    normalizeCaptionMatchText(input.caption_type),
     normalizeCaptionMatchText(input.hook),
     normalizeCaptionMatchText(input.body),
+    normalizeCaptionMatchText(input.cta),
+    normalizeCaptionMatchText(input.hashtags),
   ].join("|");
 }

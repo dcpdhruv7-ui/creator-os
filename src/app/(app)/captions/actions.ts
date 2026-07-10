@@ -24,6 +24,18 @@ export type SaveCaptionState = {
   savedCaptions?: SavedCaptionPayload[];
 };
 
+export type DeleteCaptionState = {
+  status: "idle" | "success" | "error";
+  message: string;
+  deletedCaptionIds?: string[];
+};
+
+export type ClearCaptionsState = {
+  status: "idle" | "success" | "error";
+  message: string;
+  deletedCaptionIds?: string[];
+};
+
 function field(formData: FormData, name: string) {
   return String(formData.get(name) ?? "").trim();
 }
@@ -75,8 +87,7 @@ export async function saveCaption(
     .from("captions")
     .select("id, content_idea_id, caption_type, hook, body, cta, hashtags, created_at")
     .eq("user_id", user.id)
-    .eq("content_idea_id", contentIdeaId)
-    .eq("caption_type", captionType);
+    .eq("content_idea_id", contentIdeaId);
 
   if (duplicateError) {
     console.error("Caption duplicate check failed:", duplicateError.message);
@@ -89,9 +100,10 @@ export async function saveCaption(
 
   const nextFingerprint = captionFingerprint({
     content_idea_id: contentIdeaId,
-    caption_type: captionType,
     hook,
     body,
+    cta,
+    hashtags,
   });
   const duplicate = (existingCaptions ?? []).find(
     (caption) => captionFingerprint(caption) === nextFingerprint,
@@ -147,5 +159,126 @@ export async function saveCaption(
     message: "Caption saved to your caption bank.",
     savedCaption,
     savedCaptions: [savedCaption, ...(previousState.savedCaptions ?? [])],
+  };
+}
+
+export async function deleteCaption(
+  previousState: DeleteCaptionState,
+  formData: FormData,
+): Promise<DeleteCaptionState> {
+  const captionId = field(formData, "caption_id");
+
+  if (!captionId) {
+    return { status: "error", message: "Choose a saved caption to delete." };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { status: "error", message: "Your session has expired. Please log in again." };
+  }
+
+  const { data: deletedRows, error } = await supabase
+    .from("captions")
+    .delete()
+    .eq("id", captionId)
+    .eq("user_id", user.id)
+    .select("id");
+
+  if (error) {
+    console.error("Caption delete failed:", error.message);
+
+    return {
+      status: "error",
+      message: "We could not delete that caption. Please try again.",
+      deletedCaptionIds: previousState.deletedCaptionIds ?? [],
+    };
+  }
+
+  if (!deletedRows?.length) {
+    return {
+      status: "error",
+      message: "That saved caption was not found.",
+      deletedCaptionIds: previousState.deletedCaptionIds ?? [],
+    };
+  }
+
+  revalidatePath("/captions");
+  revalidatePath("/dashboard");
+
+  return {
+    status: "success",
+    message: "Caption deleted.",
+    deletedCaptionIds: [captionId, ...(previousState.deletedCaptionIds ?? [])],
+  };
+}
+
+export async function clearCaptionsForIdea(
+  previousState: ClearCaptionsState,
+  formData: FormData,
+): Promise<ClearCaptionsState> {
+  const contentIdeaId = field(formData, "content_idea_id");
+
+  if (!contentIdeaId) {
+    return { status: "error", message: "Choose an idea before clearing captions." };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { status: "error", message: "Your session has expired. Please log in again." };
+  }
+
+  const { data: idea, error: ideaError } = await supabase
+    .from("content_ideas")
+    .select("id")
+    .eq("id", contentIdeaId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (ideaError || !idea) {
+    console.error("Caption clear idea validation failed:", ideaError?.message);
+
+    return {
+      status: "error",
+      message: "That saved idea is no longer available.",
+      deletedCaptionIds: previousState.deletedCaptionIds ?? [],
+    };
+  }
+
+  const { data: deletedRows, error } = await supabase
+    .from("captions")
+    .delete()
+    .eq("user_id", user.id)
+    .eq("content_idea_id", contentIdeaId)
+    .select("id");
+
+  if (error) {
+    console.error("Caption clear failed:", error.message);
+
+    return {
+      status: "error",
+      message: "We could not clear captions for this idea. Please try again.",
+      deletedCaptionIds: previousState.deletedCaptionIds ?? [],
+    };
+  }
+
+  const deletedIds = (deletedRows ?? []).map((caption) => caption.id);
+
+  revalidatePath("/captions");
+  revalidatePath("/dashboard");
+
+  return {
+    status: "success",
+    message: deletedIds.length
+      ? "Saved captions cleared for this idea."
+      : "There were no saved captions to clear for this idea.",
+    deletedCaptionIds: [...deletedIds, ...(previousState.deletedCaptionIds ?? [])],
   };
 }
