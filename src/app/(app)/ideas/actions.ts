@@ -15,6 +15,12 @@ export type SaveIdeasState = {
   savedIdeaTitles?: string[];
 };
 
+export type DeleteIdeasState = {
+  status: "idle" | "success" | "error";
+  message: string;
+  deletedIdeaIds?: string[];
+};
+
 const allowedStatuses = ["Idea", "Scripted", "Shot", "Editing", "Scheduled", "Posted"];
 const allowedPriorities = ["Low", "Medium", "High"];
 
@@ -196,4 +202,54 @@ export async function updateSavedIdea(formData: FormData) {
   }
 
   revalidatePath("/ideas");
+}
+
+export async function deleteSavedIdeas(
+  _previousState: DeleteIdeasState,
+  formData: FormData,
+): Promise<DeleteIdeasState> {
+  const ideaIds = [...new Set(formData.getAll("idea_ids").map(String).filter(Boolean))];
+
+  if (ideaIds.length === 0) {
+    return { status: "error", message: "Select at least one saved idea to delete." };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { status: "error", message: "Your session has expired. Please log in again." };
+  }
+
+  const { data, error } = await supabase
+    .from("content_ideas")
+    .delete()
+    .eq("user_id", user.id)
+    .in("id", ideaIds)
+    .select("id");
+
+  if (error) {
+    console.error("Content idea delete failed:", error.message);
+    return { status: "error", message: "We could not delete those ideas. Please try again." };
+  }
+
+  const deletedIdeaIds = (data ?? []).map((idea) => idea.id);
+
+  if (deletedIdeaIds.length === 0) {
+    return { status: "error", message: "No matching saved ideas were deleted." };
+  }
+
+  revalidatePath("/ideas");
+  revalidatePath("/dashboard");
+
+  return {
+    status: "success",
+    message:
+      deletedIdeaIds.length === 1
+        ? "Saved idea deleted."
+        : `${deletedIdeaIds.length} saved ideas deleted.`,
+    deletedIdeaIds,
+  };
 }

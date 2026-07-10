@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { useFormStatus } from "react-dom";
-import { Check, Layers3, LoaderCircle, RefreshCw, Save } from "lucide-react";
+import { Check, Layers3, LoaderCircle, RefreshCw, Save, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,6 +13,8 @@ import {
 } from "@/lib/content-ideas";
 import { cn } from "@/lib/utils";
 import {
+  deleteSavedIdeas,
+  type DeleteIdeasState,
   saveGeneratedIdeas,
   type SaveIdeasState,
   updateSavedIdea,
@@ -35,6 +37,7 @@ type IdeaEngineProps = {
 };
 
 const initialState: SaveIdeasState = { status: "idle", message: "" };
+const initialDeleteState: DeleteIdeasState = { status: "idle", message: "" };
 const statuses = ["Idea", "Scripted", "Shot", "Editing", "Scheduled", "Posted"];
 const priorities = ["Low", "Medium", "High"];
 
@@ -61,8 +64,12 @@ export function IdeaEngine({ profile, savedIdeas }: IdeaEngineProps) {
   const [generatedIdeas, setGeneratedIdeas] = useState<GeneratedIdea[]>([]);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [state, setState] = useState<SaveIdeasState>(initialState);
+  const [deleteState, setDeleteState] = useState<DeleteIdeasState>(initialDeleteState);
   const [isSaving, setIsSaving] = useState(false);
+  const [isDeletingIdeas, setIsDeletingIdeas] = useState(false);
   const [generationOffset, setGenerationOffset] = useState(0);
+  const [localSavedIdeas, setLocalSavedIdeas] = useState(savedIdeas);
+  const [selectedSavedIdeaIds, setSelectedSavedIdeaIds] = useState<string[]>([]);
   const [localSavedIdeaTitles, setLocalSavedIdeaTitles] = useState(
     savedIdeas.map((idea) => idea.title),
   );
@@ -89,6 +96,18 @@ export function IdeaEngine({ profile, savedIdeas }: IdeaEngineProps) {
   function toggleAll() {
     setSelectedKeys((current) =>
       current.length === generatedIdeas.length ? [] : generatedIdeas.map((idea) => idea.key),
+    );
+  }
+
+  function toggleSavedIdea(id: string) {
+    setSelectedSavedIdeaIds((current) =>
+      current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
+    );
+  }
+
+  function toggleAllSavedIdeas() {
+    setSelectedSavedIdeaIds((current) =>
+      current.length === localSavedIdeas.length ? [] : localSavedIdeas.map((idea) => idea.id),
     );
   }
 
@@ -139,6 +158,49 @@ export function IdeaEngine({ profile, savedIdeas }: IdeaEngineProps) {
       setSelectedKeys([]);
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  async function deleteSelectedSavedIdeas(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (selectedSavedIdeaIds.length === 0 || isDeletingIdeas) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      selectedSavedIdeaIds.length === 1
+        ? "Delete this saved idea?"
+        : `Delete ${selectedSavedIdeaIds.length} selected saved ideas?`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setIsDeletingIdeas(true);
+
+    try {
+      const formData = new FormData(event.currentTarget);
+      const nextState = await deleteSavedIdeas(deleteState, formData);
+      setDeleteState(nextState);
+
+      if (nextState.status !== "success" || !nextState.deletedIdeaIds?.length) {
+        return;
+      }
+
+      const deletedIdSet = new Set(nextState.deletedIdeaIds);
+      setLocalSavedIdeas((current) => current.filter((idea) => !deletedIdSet.has(idea.id)));
+      setSelectedSavedIdeaIds([]);
+      setLocalSavedIdeaTitles((current) => {
+        const remainingTitles = localSavedIdeas
+          .filter((idea) => !deletedIdSet.has(idea.id))
+          .map((idea) => idea.title);
+
+        return current.filter((title) => remainingTitles.includes(title));
+      });
+    } finally {
+      setIsDeletingIdeas(false);
     }
   }
 
@@ -283,20 +345,83 @@ export function IdeaEngine({ profile, savedIdeas }: IdeaEngineProps) {
       </section>
 
       <section className="border-t border-white/10 pt-8">
-        <div>
-          <h3 className="text-lg font-semibold text-white">Saved idea bank</h3>
-          <p className="mt-1 text-sm text-zinc-400">
-            {savedIdeas.length} saved idea{savedIdeas.length === 1 ? "" : "s"}
-          </p>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-white">Saved idea bank</h3>
+            <p className="mt-1 text-sm text-zinc-400">
+              {localSavedIdeas.length} saved idea{localSavedIdeas.length === 1 ? "" : "s"}
+            </p>
+            <p className="mt-2 text-sm text-zinc-500">
+              Select saved ideas here when you want to delete old versions.
+            </p>
+          </div>
+
+          {localSavedIdeas.length > 0 ? (
+            <form className="flex flex-wrap items-center gap-2" onSubmit={deleteSelectedSavedIdeas}>
+              {selectedSavedIdeaIds.map((id) => (
+                <input key={id} name="idea_ids" type="hidden" value={id} />
+              ))}
+              <Button onClick={toggleAllSavedIdeas} size="sm" type="button" variant="ghost">
+                {selectedSavedIdeaIds.length === localSavedIdeas.length
+                  ? "Clear selection"
+                  : "Select all saved"}
+              </Button>
+              <Button
+                disabled={selectedSavedIdeaIds.length === 0 || isDeletingIdeas}
+                size="sm"
+                type="submit"
+                variant="destructive"
+              >
+                {isDeletingIdeas ? <LoaderCircle className="animate-spin" /> : <Trash2 />}
+                {isDeletingIdeas
+                  ? "Deleting..."
+                  : `Delete selected${selectedSavedIdeaIds.length ? ` (${selectedSavedIdeaIds.length})` : ""}`}
+              </Button>
+            </form>
+          ) : null}
         </div>
 
-        {savedIdeas.length > 0 ? (
+        {deleteState.message ? (
+          <div
+            className={cn(
+              "mt-4 rounded-lg border px-4 py-3 text-sm",
+              deleteState.status === "success"
+                ? "border-emerald-300/25 bg-emerald-400/[0.08] text-emerald-100"
+                : "border-red-400/25 bg-red-400/[0.08] text-red-100",
+            )}
+            role={deleteState.status === "error" ? "alert" : "status"}
+          >
+            {deleteState.message}
+          </div>
+        ) : null}
+
+        {localSavedIdeas.length > 0 ? (
           <div className="mt-5 grid gap-4 lg:grid-cols-2">
-            {savedIdeas.map((idea) => (
-              <Card key={idea.id}>
+            {localSavedIdeas.map((idea) => {
+              const selected = selectedSavedIdeaIds.includes(idea.id);
+
+              return (
+              <Card
+                className={cn(selected && "border-red-300/50 bg-red-400/[0.04]")}
+                key={idea.id}
+              >
                 <CardHeader>
-                  <p className="text-xs text-emerald-300">{idea.format ?? "Content idea"}</p>
-                  <CardTitle>{idea.title}</CardTitle>
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs text-emerald-300">{idea.format ?? "Content idea"}</p>
+                      <CardTitle className="mt-2">{idea.title}</CardTitle>
+                    </div>
+                    <Button
+                      aria-pressed={selected}
+                      onClick={() => toggleSavedIdea(idea.id)}
+                      size="sm"
+                      type="button"
+                      variant={selected ? "destructive" : "secondary"}
+                    >
+                      {selected ? <Check /> : null}
+                      {selected ? "Selected" : "Select"}
+                    </Button>
+                  </div>
                   <p className="text-sm leading-6 text-zinc-400">{idea.hook}</p>
                 </CardHeader>
                 <CardContent>
@@ -341,7 +466,8 @@ export function IdeaEngine({ profile, savedIdeas }: IdeaEngineProps) {
                   </form>
                 </CardContent>
               </Card>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <div className="mt-5 rounded-lg border border-white/10 bg-white/[0.025] p-6 text-sm text-zinc-500">
