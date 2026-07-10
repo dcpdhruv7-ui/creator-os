@@ -639,7 +639,7 @@ function patternHookPool(context: CaptionContext) {
     },
     "mistake-fix": {
       "Problem hook": ["This small mistake changes the whole result."],
-      "Mistake hook": [`Fix ${adapter.mistake} before doing more.`],
+      "Mistake hook": ["Fix the key issue before doing more."],
       "Save-worthy hook": ["Save this before your next attempt."],
     },
     "before-after": {
