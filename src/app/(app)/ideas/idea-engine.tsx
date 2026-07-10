@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useState, type FormEvent } from "react";
 import { useFormStatus } from "react-dom";
 import { Check, Layers3, LoaderCircle, RefreshCw, Save } from "lucide-react";
 
@@ -38,9 +38,7 @@ const initialState: SaveIdeasState = { status: "idle", message: "" };
 const statuses = ["Idea", "Scripted", "Shot", "Editing", "Scheduled", "Posted"];
 const priorities = ["Low", "Medium", "High"];
 
-function SaveIdeasButton({ disabled }: { disabled: boolean }) {
-  const { pending } = useFormStatus();
-
+function SaveIdeasButton({ disabled, pending }: { disabled: boolean; pending: boolean }) {
   return (
     <Button disabled={disabled || pending} type="submit">
       {pending ? <LoaderCircle className="animate-spin" /> : <Save />}
@@ -62,10 +60,23 @@ function UpdateIdeaButton() {
 export function IdeaEngine({ profile, savedIdeas }: IdeaEngineProps) {
   const [generatedIdeas, setGeneratedIdeas] = useState<GeneratedIdea[]>([]);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
-  const [state, formAction] = useActionState(saveGeneratedIdeas, initialState);
+  const [state, setState] = useState<SaveIdeasState>(initialState);
+  const [isSaving, setIsSaving] = useState(false);
+  const [generationOffset, setGenerationOffset] = useState(0);
+  const [localSavedIdeaTitles, setLocalSavedIdeaTitles] = useState(
+    savedIdeas.map((idea) => idea.title),
+  );
 
   function generateIdeas() {
-    setGeneratedIdeas(generateAdaptiveIdeas(profile));
+    const nextOffset = generationOffset;
+    setGeneratedIdeas(
+      generateAdaptiveIdeas(profile, {
+        count: 10,
+        excludeTitles: localSavedIdeaTitles,
+        offset: nextOffset,
+      }),
+    );
+    setGenerationOffset(nextOffset + 10);
     setSelectedKeys([]);
   }
 
@@ -79,6 +90,56 @@ export function IdeaEngine({ profile, savedIdeas }: IdeaEngineProps) {
     setSelectedKeys((current) =>
       current.length === generatedIdeas.length ? [] : generatedIdeas.map((idea) => idea.key),
     );
+  }
+
+  async function saveSelectedIdeas(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (selectedKeys.length === 0 || isSaving) {
+      return;
+    }
+
+    setIsSaving(true);
+
+    try {
+      const formData = new FormData(event.currentTarget);
+      const nextState = await saveGeneratedIdeas(state, formData);
+      setState(nextState);
+
+      if (nextState.status !== "success" || !nextState.savedIdeaKeys?.length) {
+        return;
+      }
+
+      const savedKeySet = new Set(nextState.savedIdeaKeys);
+      const savedTitleSet = new Set(nextState.savedIdeaTitles ?? []);
+      const nextOffset = generationOffset;
+
+      setGeneratedIdeas((currentIdeas) => {
+        const remainingIdeas = currentIdeas.filter(
+          (idea) => !savedKeySet.has(idea.key) && !savedTitleSet.has(idea.title),
+        );
+        const replacementCount = Math.max(0, 10 - remainingIdeas.length);
+        const excludeTitles = [
+          ...localSavedIdeaTitles,
+          ...remainingIdeas.map((idea) => idea.title),
+          ...(nextState.savedIdeaTitles ?? []),
+        ];
+        const replacements = generateAdaptiveIdeas(profile, {
+          count: replacementCount,
+          excludeTitles,
+          offset: nextOffset,
+        });
+
+        return [...remainingIdeas, ...replacements].slice(0, 10);
+      });
+      setGenerationOffset(nextOffset + 10);
+      setLocalSavedIdeaTitles((current) => [
+        ...new Set([...current, ...(nextState.savedIdeaTitles ?? [])]),
+      ]);
+      setSelectedKeys([]);
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   return (
@@ -103,6 +164,9 @@ export function IdeaEngine({ profile, savedIdeas }: IdeaEngineProps) {
             <p className="mt-1 text-sm text-zinc-400">
               Create ten local, profile-based ideas and save the strongest ones.
             </p>
+            <p className="mt-2 text-sm text-zinc-500">
+              Saved ideas are moved to your idea bank and replaced with fresh suggestions.
+            </p>
           </div>
           <Button onClick={generateIdeas} type="button">
             <RefreshCw />
@@ -111,7 +175,7 @@ export function IdeaEngine({ profile, savedIdeas }: IdeaEngineProps) {
         </div>
 
         {generatedIdeas.length > 0 ? (
-          <form action={formAction} className="mt-5 space-y-5">
+          <form className="mt-5 space-y-5" onSubmit={saveSelectedIdeas}>
             {selectedKeys.map((key) => (
               <input key={key} name="idea_keys" type="hidden" value={key} />
             ))}
@@ -208,7 +272,7 @@ export function IdeaEngine({ profile, savedIdeas }: IdeaEngineProps) {
             ) : null}
 
             <div className="flex justify-end">
-              <SaveIdeasButton disabled={selectedKeys.length === 0} />
+              <SaveIdeasButton disabled={selectedKeys.length === 0} pending={isSaving} />
             </div>
           </form>
         ) : (

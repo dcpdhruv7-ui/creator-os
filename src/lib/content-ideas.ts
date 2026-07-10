@@ -24,6 +24,12 @@ export type GeneratedIdea = {
   status: "Idea";
 };
 
+export type GenerateAdaptiveIdeasOptions = {
+  count?: number;
+  excludeTitles?: string[];
+  offset?: number;
+};
+
 type PatternId =
   | "final-output"
   | "behind-the-scenes"
@@ -528,31 +534,100 @@ const corePatternIds: PatternId[] = [
   "repurpose",
 ];
 
-export function generateAdaptiveIdeas(profile: IdeaProfile): GeneratedIdea[] {
+const ideaVariantLabels = [
+  "Fresh Angle",
+  "Process Angle",
+  "Save-Worthy Angle",
+  "Trust Builder",
+  "Fast Reel Angle",
+  "Community Angle",
+  "Authority Angle",
+  "Story Angle",
+];
+
+const ideaVariantHooks = [
+  "Use this as a fresh version with a different opening moment.",
+  "Frame this around the process instead of only the result.",
+  "Make this version more save-worthy by focusing on the repeatable detail.",
+  "Turn this into a trust-building post by showing what changed.",
+  "Keep this version tighter and lead with the strongest visual.",
+  "Invite people into the idea by asking what they would try next.",
+  "Use this version to explain the decision behind the result.",
+  "Make the journey or turning point the main reason to watch.",
+];
+
+function ideaTitleKey(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function rotateIdeas<T>(values: T[], amount: number) {
+  if (values.length === 0) return values;
+  const offset = amount % values.length;
+  return [...values.slice(offset), ...values.slice(0, offset)];
+}
+
+function applyIdeaVariant(idea: GeneratedIdea, round: number): GeneratedIdea {
+  if (round === 0) {
+    return idea;
+  }
+
+  const label = ideaVariantLabels[(round - 1) % ideaVariantLabels.length];
+  const hookDetail = ideaVariantHooks[(round - 1) % ideaVariantHooks.length];
+
+  return {
+    ...idea,
+    key: `${idea.key}-${round}`,
+    title: `${idea.title}: ${label}`,
+    hook: `${idea.hook} ${hookDetail}`,
+  };
+}
+
+export function generateAdaptiveIdeas(
+  profile: IdeaProfile,
+  options: GenerateAdaptiveIdeasOptions = {},
+): GeneratedIdea[] {
   const adapter = nicheAdapters[profile.niche] ?? fallbackAdapter;
+  const count = options.count ?? 10;
+  const excludedTitles = new Set((options.excludeTitles ?? []).map(ideaTitleKey));
   const selectedPatternIds = [...corePatternIds, ...adapter.preferredPatterns];
   const patternMap = new Map(universalIdeaPatterns.map((pattern) => [pattern.id, pattern]));
+  const candidates: GeneratedIdea[] = [];
+  const seenTitles = new Set<string>();
 
-  return selectedPatternIds.map((patternId, index) => {
-    const pattern = patternMap.get(patternId)!;
-    const creatorReference = profile.selectedCreatorNames.length
-      ? profile.selectedCreatorNames[index % profile.selectedCreatorNames.length]
-      : null;
-    const context = { profile, adapter, creatorReference };
+  for (let round = 0; round <= ideaVariantLabels.length; round += 1) {
+    selectedPatternIds.forEach((patternId, index) => {
+      const pattern = patternMap.get(patternId)!;
+      const creatorReference = profile.selectedCreatorNames.length
+        ? profile.selectedCreatorNames[index % profile.selectedCreatorNames.length]
+        : null;
+      const context = { profile, adapter, creatorReference };
+      const idea = applyIdeaVariant(
+        {
+          key: pattern.id,
+          title: pattern.title(context),
+          hook: pattern.hook(context),
+          niche: profile.niche,
+          sub_niche: profile.subNiche,
+          format: formatTemplates[pattern.id](context),
+          shot_list: pattern.shotList(context),
+          caption_angle: pattern.captionAngle(context),
+          difficulty: pattern.difficulty,
+          goal: pattern.goal,
+          priority: pattern.priority,
+          status: "Idea",
+        },
+        round,
+      );
+      const titleKey = ideaTitleKey(idea.title);
 
-    return {
-      key: pattern.id,
-      title: pattern.title(context),
-      hook: pattern.hook(context),
-      niche: profile.niche,
-      sub_niche: profile.subNiche,
-      format: formatTemplates[pattern.id](context),
-      shot_list: pattern.shotList(context),
-      caption_angle: pattern.captionAngle(context),
-      difficulty: pattern.difficulty,
-      goal: pattern.goal,
-      priority: pattern.priority,
-      status: "Idea",
-    };
-  });
+      if (excludedTitles.has(titleKey) || seenTitles.has(titleKey)) {
+        return;
+      }
+
+      seenTitles.add(titleKey);
+      candidates.push(idea);
+    });
+  }
+
+  return rotateIdeas(candidates, options.offset ?? 0).slice(0, count);
 }

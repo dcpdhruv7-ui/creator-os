@@ -11,6 +11,8 @@ import { createClient } from "@/lib/supabase/server";
 export type SaveIdeasState = {
   status: "idle" | "success" | "error";
   message: string;
+  savedIdeaKeys?: string[];
+  savedIdeaTitles?: string[];
 };
 
 const allowedStatuses = ["Idea", "Scripted", "Shot", "Editing", "Scheduled", "Posted"];
@@ -96,7 +98,7 @@ export async function saveGeneratedIdeas(
     return { status: "error", message: result.message };
   }
 
-  const ideas = generateAdaptiveIdeas(result.profile).filter((idea) =>
+  const ideas = generateAdaptiveIdeas(result.profile, { count: 100 }).filter((idea) =>
     selectedKeys.includes(idea.key),
   );
 
@@ -153,8 +155,10 @@ export async function saveGeneratedIdeas(
     status: "success",
     message:
       newIdeas.length > 0
-        ? "Ideas saved to your idea bank."
+        ? "Ideas saved. Fresh ideas added to your generator."
         : "Those ideas are already in your idea bank.",
+    savedIdeaKeys: newIdeas.map((idea) => idea.key),
+    savedIdeaTitles: newIdeas.map((idea) => idea.title),
   };
 }
 
