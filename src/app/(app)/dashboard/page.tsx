@@ -2,6 +2,7 @@ import {
   ArrowRight,
   BarChart3,
   CalendarDays,
+  Captions,
   Compass,
   Lightbulb,
   Sparkles,
@@ -36,22 +37,29 @@ export default async function DashboardPage() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  const [{ data: profile }, { data: creatorProfile }, ideasResult] = await Promise.all([
-    supabase.from("profiles").select("primary_niche").eq("id", user!.id).maybeSingle(),
-    supabase
-      .from("user_creator_profiles")
-      .select("niche, sub_niche, selected_creators, energy_style, content_tone")
-      .eq("user_id", user!.id)
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-    supabase
-      .from("content_ideas")
-      .select("title", { count: "exact" })
-      .eq("user_id", user!.id)
-      .order("created_at", { ascending: false })
-      .limit(1),
-  ]);
+  const [{ data: profile }, { data: creatorProfile }, ideasResult, captionsResult] =
+    await Promise.all([
+      supabase.from("profiles").select("primary_niche").eq("id", user!.id).maybeSingle(),
+      supabase
+        .from("user_creator_profiles")
+        .select("niche, sub_niche, selected_creators, energy_style, content_tone")
+        .eq("user_id", user!.id)
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from("content_ideas")
+        .select("title", { count: "exact" })
+        .eq("user_id", user!.id)
+        .order("created_at", { ascending: false })
+        .limit(1),
+      supabase
+        .from("captions")
+        .select("caption_type, content_idea_id", { count: "exact" })
+        .eq("user_id", user!.id)
+        .order("created_at", { ascending: false })
+        .limit(1),
+    ]);
   const niche = creatorProfile?.niche ?? profile?.primary_niche ?? null;
   const subNiche = creatorProfile?.sub_niche ?? null;
   const inspirationCount = Array.isArray(creatorProfile?.selected_creators)
@@ -59,6 +67,8 @@ export default async function DashboardPage() {
     : 0;
   const ideaCount = ideasResult.count ?? 0;
   const latestIdea = ideasResult.data?.[0]?.title ?? null;
+  const captionCount = captionsResult.count ?? 0;
+  const latestCaptionType = captionsResult.data?.[0]?.caption_type ?? null;
 
   return (
     <section className="mx-auto w-full max-w-6xl">
@@ -159,6 +169,33 @@ export default async function DashboardPage() {
             <Button asChild size="sm" variant={ideaCount > 0 ? "secondary" : "default"}>
               <Link href={inspirationCount > 0 ? "/ideas" : "/creators"}>
                 Generate ideas
+                <ArrowRight />
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card className="min-h-48 border-emerald-300/20">
+          <CardHeader>
+            <div className="mb-3 flex size-10 items-center justify-center rounded-md border border-emerald-300/20 bg-emerald-400/10 text-emerald-200">
+              <Captions className="size-5" />
+            </div>
+            <CardTitle>Captions</CardTitle>
+            <CardDescription>
+              <span className="block text-base font-medium text-zinc-100">
+                {captionCount} saved caption{captionCount === 1 ? "" : "s"}
+              </span>
+              <span className="mt-1 block">
+                {latestCaptionType
+                  ? `${latestCaptionType} caption saved most recently.`
+                  : "Turn saved ideas into hooks, captions, CTAs, and hashtags."}
+              </span>
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild size="sm" variant={captionCount > 0 ? "secondary" : "default"}>
+              <Link href={ideaCount > 0 ? "/captions" : "/ideas"}>
+                Generate captions
                 <ArrowRight />
               </Link>
             </Button>
