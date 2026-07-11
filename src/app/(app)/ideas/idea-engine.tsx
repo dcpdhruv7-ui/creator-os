@@ -28,6 +28,10 @@ type IdeaEngineProps = {
   savedIdeas: SavedIdea[];
 };
 
+type ClientGeneratedIdea = GeneratedIdea & {
+  clientId: string;
+};
+
 const initialState: SaveIdeasState = { status: "idle", message: "" };
 const initialDeleteState: DeleteIdeasState = { status: "idle", message: "" };
 const statuses = ["Idea", "Scripted", "Shot", "Editing", "Scheduled", "Posted"];
@@ -68,6 +72,28 @@ function mergeSavedIdeas(currentIdeas: SavedIdea[], incomingIdeas: SavedIdea[]) 
   return nextIdeas;
 }
 
+function withClientIds(ideas: GeneratedIdea[], batchId: number): ClientGeneratedIdea[] {
+  return ideas.map((idea, index) => ({
+    ...idea,
+    clientId: `${batchId}-${index}-${idea.key}`,
+  }));
+}
+
+function reconcileSelectedIdeas(generatedIdeas: ClientGeneratedIdea[], selectedIds: string[]) {
+  const visibleIds = new Set(generatedIdeas.map((idea) => idea.clientId));
+
+  return selectedIds.filter((id) => visibleIds.has(id));
+}
+
+function getValidSelectedIdeas(
+  generatedIdeas: ClientGeneratedIdea[],
+  selectedIds: string[],
+) {
+  const selectedIdSet = new Set(reconcileSelectedIdeas(generatedIdeas, selectedIds));
+
+  return generatedIdeas.filter((idea) => selectedIdSet.has(idea.clientId));
+}
+
 function SaveIdeasButton({ disabled, pending }: { disabled: boolean; pending: boolean }) {
   return (
     <Button disabled={disabled || pending} type="submit">
@@ -88,41 +114,57 @@ function UpdateIdeaButton() {
 }
 
 export function IdeaEngine({ profile, savedIdeas }: IdeaEngineProps) {
-  const [generatedIdeas, setGeneratedIdeas] = useState<GeneratedIdea[]>([]);
-  const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
+  const [generatedIdeas, setGeneratedIdeas] = useState<ClientGeneratedIdea[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [state, setState] = useState<SaveIdeasState>(initialState);
   const [deleteState, setDeleteState] = useState<DeleteIdeasState>(initialDeleteState);
   const [isSaving, setIsSaving] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
   const [isDeletingIdeas, setIsDeletingIdeas] = useState(false);
   const [generationOffset, setGenerationOffset] = useState(0);
+  const [generationBatch, setGenerationBatch] = useState(0);
   const [localSavedIdeas, setLocalSavedIdeas] = useState(savedIdeas);
   const [selectedSavedIdeaIds, setSelectedSavedIdeaIds] = useState<string[]>([]);
   const [localSavedIdeaTitles, setLocalSavedIdeaTitles] = useState(
     savedIdeas.map((idea) => idea.title),
   );
+  const reconciledSelectedIds = reconcileSelectedIdeas(generatedIdeas, selectedIds);
 
   function generateIdeas() {
+    if (isSaving || isGenerating) {
+      return;
+    }
+
+    setIsGenerating(true);
+    setSelectedIds([]);
     const nextOffset = generationOffset;
+    const nextBatch = generationBatch + 1;
     setGeneratedIdeas(
-      generateAdaptiveIdeas(profile, {
-        count: 10,
-        excludeTitles: localSavedIdeaTitles,
-        offset: nextOffset,
-      }),
+      withClientIds(
+        generateAdaptiveIdeas(profile, {
+          count: 10,
+          excludeTitles: localSavedIdeaTitles,
+          offset: nextOffset,
+        }),
+        nextBatch,
+      ),
     );
     setGenerationOffset(nextOffset + 10);
-    setSelectedKeys([]);
+    setGenerationBatch(nextBatch);
+    setIsGenerating(false);
   }
 
-  function toggleIdea(key: string) {
-    setSelectedKeys((current) =>
-      current.includes(key) ? current.filter((item) => item !== key) : [...current, key],
+  function toggleIdea(id: string) {
+    setSelectedIds((current) =>
+      current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
     );
   }
 
   function toggleAll() {
-    setSelectedKeys((current) =>
-      current.length === generatedIdeas.length ? [] : generatedIdeas.map((idea) => idea.key),
+    setSelectedIds((current) =>
+      reconcileSelectedIdeas(generatedIdeas, current).length === generatedIdeas.length
+        ? []
+        : generatedIdeas.map((idea) => idea.clientId),
     );
   }
 
@@ -140,8 +182,14 @@ export function IdeaEngine({ profile, savedIdeas }: IdeaEngineProps) {
 
   async function saveSelectedIdeas(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const selectedIdeas = getValidSelectedIdeas(generatedIdeas, selectedIds);
 
-    if (selectedKeys.length === 0 || isSaving) {
+    if (selectedIdeas.length === 0 || isSaving || isGenerating) {
+      setSelectedIds([]);
+      setState({
+        status: "error",
+        message: "Your generated ideas changed. Please select again.",
+      });
       return;
     }
 
@@ -149,6 +197,9 @@ export function IdeaEngine({ profile, savedIdeas }: IdeaEngineProps) {
 
     try {
       const formData = new FormData(event.currentTarget);
+      formData.set("selected_ideas", JSON.stringify(selectedIdeas));
+      formData.delete("idea_keys");
+      selectedIdeas.forEach((idea) => formData.append("idea_keys", idea.key));
       const nextState = await saveGeneratedIdeas(state, formData);
       setState(nextState);
 
@@ -169,13 +220,14 @@ export function IdeaEngine({ profile, savedIdeas }: IdeaEngineProps) {
       }
 
       if (!nextState.savedIdeaKeys?.length) {
-        setSelectedKeys([]);
+        setSelectedIds([]);
         return;
       }
 
       const savedKeySet = new Set(nextState.savedIdeaKeys);
       const savedTitleSet = new Set(nextState.savedIdeaTitles ?? []);
       const nextOffset = generationOffset;
+      const nextBatch = generationBatch + 1;
 
       setGeneratedIdeas((currentIdeas) => {
         const remainingIdeas = currentIdeas.filter(
@@ -187,20 +239,24 @@ export function IdeaEngine({ profile, savedIdeas }: IdeaEngineProps) {
           ...remainingIdeas.map((idea) => idea.title),
           ...(nextState.savedIdeaTitles ?? []),
         ];
-        const replacements = generateAdaptiveIdeas(profile, {
-          count: replacementCount,
-          excludeTitles,
-          excludeKeys: nextState.savedIdeaKeys,
-          offset: nextOffset,
-        });
+        const replacements = withClientIds(
+          generateAdaptiveIdeas(profile, {
+            count: replacementCount,
+            excludeTitles,
+            excludeKeys: nextState.savedIdeaKeys,
+            offset: nextOffset,
+          }),
+          nextBatch,
+        );
 
         return [...remainingIdeas, ...replacements].slice(0, 10);
       });
       setGenerationOffset(nextOffset + 10);
+      setGenerationBatch(nextBatch);
       setLocalSavedIdeaTitles((current) => [
         ...new Set([...current, ...(nextState.savedIdeaTitles ?? [])]),
       ]);
-      setSelectedKeys([]);
+      setSelectedIds([]);
     } finally {
       setIsSaving(false);
     }
@@ -278,30 +334,35 @@ export function IdeaEngine({ profile, savedIdeas }: IdeaEngineProps) {
               Creator OS replaces saved ideas with fresh angles, not just rewritten versions.
             </p>
           </div>
-          <Button onClick={generateIdeas} type="button">
-            <RefreshCw />
+          <Button disabled={isSaving || isGenerating} onClick={generateIdeas} type="button">
+            {isGenerating ? <LoaderCircle className="animate-spin" /> : <RefreshCw />}
             {generatedIdeas.length ? "Generate again" : "Generate 10 ideas"}
           </Button>
         </div>
 
         {generatedIdeas.length > 0 ? (
           <form className="mt-5 space-y-5" onSubmit={saveSelectedIdeas}>
-            {selectedKeys.map((key) => (
-              <input key={key} name="idea_keys" type="hidden" value={key} />
+            {reconciledSelectedIds.map((id) => (
+              <input key={id} name="idea_ids" type="hidden" value={id} />
             ))}
+            <input
+              name="selected_ideas"
+              type="hidden"
+              value={JSON.stringify(getValidSelectedIdeas(generatedIdeas, reconciledSelectedIds))}
+            />
 
             <div className="flex items-center justify-between gap-3">
               <p className="text-sm text-zinc-400">
-                {selectedKeys.length} of {generatedIdeas.length} selected
+                {reconciledSelectedIds.length} of {generatedIdeas.length} selected
               </p>
               <Button onClick={toggleAll} size="sm" type="button" variant="ghost">
-                {selectedKeys.length === generatedIdeas.length ? "Clear selection" : "Select all"}
+                {reconciledSelectedIds.length === generatedIdeas.length ? "Clear selection" : "Select all"}
               </Button>
             </div>
 
             <div className="grid gap-4 lg:grid-cols-2">
               {generatedIdeas.map((idea) => {
-                const selected = selectedKeys.includes(idea.key);
+                const selected = reconciledSelectedIds.includes(idea.clientId);
 
                 return (
                   <Card
@@ -310,12 +371,12 @@ export function IdeaEngine({ profile, savedIdeas }: IdeaEngineProps) {
                       "relative cursor-pointer transition-colors hover:border-white/25",
                       selected && "border-emerald-300/70 bg-emerald-400/[0.06]",
                     )}
-                    key={idea.key}
-                    onClick={() => toggleIdea(idea.key)}
+                    key={idea.clientId}
+                    onClick={() => toggleIdea(idea.clientId)}
                     onKeyDown={(event) => {
                       if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault();
-                        toggleIdea(idea.key);
+                        toggleIdea(idea.clientId);
                       }
                     }}
                     role="checkbox"
@@ -385,7 +446,10 @@ export function IdeaEngine({ profile, savedIdeas }: IdeaEngineProps) {
             ) : null}
 
             <div className="flex justify-end">
-              <SaveIdeasButton disabled={selectedKeys.length === 0} pending={isSaving} />
+              <SaveIdeasButton
+                disabled={reconciledSelectedIds.length === 0 || isGenerating}
+                pending={isSaving}
+              />
             </div>
           </form>
         ) : (

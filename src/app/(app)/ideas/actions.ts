@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import {
   generateAdaptiveIdeas,
+  type GeneratedIdea,
   type IdeaProfile,
 } from "@/lib/content-ideas";
 import { createClient } from "@/lib/supabase/server";
@@ -44,6 +45,46 @@ const allowedStatuses = ["Idea", "Scripted", "Shot", "Editing", "Scheduled", "Po
 const allowedPriorities = ["Low", "Medium", "High"];
 const savedIdeaSelect =
   "id, title, hook, niche, sub_niche, format, shot_list, caption_angle, difficulty, goal, status, priority, created_at";
+
+function isGeneratedIdea(value: unknown): value is GeneratedIdea {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const idea = value as Record<string, unknown>;
+
+  return (
+    typeof idea.key === "string" &&
+    typeof idea.title === "string" &&
+    typeof idea.hook === "string" &&
+    typeof idea.creative_angle === "string" &&
+    typeof idea.niche === "string" &&
+    typeof idea.sub_niche === "string" &&
+    typeof idea.format === "string" &&
+    typeof idea.shot_list === "string" &&
+    typeof idea.caption_angle === "string" &&
+    typeof idea.difficulty === "string" &&
+    typeof idea.goal === "string" &&
+    typeof idea.priority === "string" &&
+    idea.status === "Idea"
+  );
+}
+
+function parseSelectedIdeas(formData: FormData) {
+  const rawIdeas = String(formData.get("selected_ideas") ?? "");
+
+  if (!rawIdeas) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(rawIdeas);
+
+    return Array.isArray(parsed) ? parsed.filter(isGeneratedIdea) : [];
+  } catch {
+    return [];
+  }
+}
 
 function selectedCreatorNames(value: unknown) {
   if (!Array.isArray(value)) {
@@ -114,8 +155,9 @@ export async function saveGeneratedIdeas(
   formData: FormData,
 ): Promise<SaveIdeasState> {
   const selectedKeys = [...new Set(formData.getAll("idea_keys").map(String))];
+  const submittedIdeas = parseSelectedIdeas(formData);
 
-  if (selectedKeys.length === 0) {
+  if (selectedKeys.length === 0 && submittedIdeas.length === 0) {
     return { status: "error", message: "Select at least one idea to save." };
   }
 
@@ -125,12 +167,23 @@ export async function saveGeneratedIdeas(
     return { status: "error", message: result.message };
   }
 
-  const ideas = generateAdaptiveIdeas(result.profile, { count: 250 }).filter((idea) =>
+  const fallbackIdeas = generateAdaptiveIdeas(result.profile, { count: 250 }).filter((idea) =>
     selectedKeys.includes(idea.key),
   );
+  const submittedKeySet = new Set<string>();
+  const ideas = submittedIdeas.length > 0 ? submittedIdeas : fallbackIdeas;
+  const validIdeas = ideas.filter((idea) => {
+    submittedKeySet.add(idea.key);
 
-  if (ideas.length !== selectedKeys.length) {
-    return { status: "error", message: "One of the selected ideas is no longer available." };
+    return idea.niche === result.profile.niche && idea.sub_niche === result.profile.subNiche;
+  });
+  const skippedCount = Math.max(0, selectedKeys.length - validIdeas.length);
+
+  if (validIdeas.length === 0) {
+    return {
+      status: "error",
+      message: "Your generated ideas changed. Please select again.",
+    };
   }
 
   const supabase = await createClient();
@@ -140,7 +193,7 @@ export async function saveGeneratedIdeas(
     .eq("user_id", result.userId)
     .in(
       "title",
-      ideas.map((idea) => idea.title),
+      validIdeas.map((idea) => idea.title),
     );
 
   if (existingError) {
@@ -149,7 +202,7 @@ export async function saveGeneratedIdeas(
   }
 
   const existingTitles = new Set((existingIdeas ?? []).map((idea) => idea.title));
-  const newIdeas = ideas.filter((idea) => !existingTitles.has(idea.title));
+  const newIdeas = validIdeas.filter((idea) => !existingTitles.has(idea.title));
   let insertedIdeas: SavedIdeaPayload[] = [];
 
   if (newIdeas.length > 0) {
@@ -187,7 +240,11 @@ export async function saveGeneratedIdeas(
   const duplicateIdeas = (existingIdeas ?? []) as SavedIdeaPayload[];
   const skippedIdeaTitles = duplicateIdeas.map((idea) => idea.title);
   const message =
-    insertedIdeas.length > 0 && duplicateIdeas.length > 0
+    skippedCount > 0 && insertedIdeas.length > 0
+      ? "Saved available ideas. Some changed ideas were skipped."
+      : skippedCount > 0
+        ? "Your generated ideas changed. Please select again."
+        : insertedIdeas.length > 0 && duplicateIdeas.length > 0
       ? "Ideas saved to your idea bank. Fresh ideas added. Some ideas were already saved."
       : insertedIdeas.length > 0
         ? "Ideas saved to your idea bank. Fresh ideas added."
