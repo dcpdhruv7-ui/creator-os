@@ -12,6 +12,7 @@ import {
   Plus,
   Sparkles,
   Trash2,
+  X,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -182,6 +183,7 @@ export function CalendarWorkspace({
   const [frequency, setFrequency] = useState(5);
   const [suggestedPlan, setSuggestedPlan] = useState<SuggestedPost[]>([]);
   const [isSavingPlan, setIsSavingPlan] = useState(false);
+  const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
 
   const selectedIdeaCaptions = useMemo(
     () => captionsForIdea(captions, selectedIdeaId),
@@ -203,6 +205,10 @@ export function CalendarWorkspace({
   const scheduledIdeaIds = useMemo(
     () => new Set(entries.map((entry) => entry.content_idea_id).filter(Boolean) as string[]),
     [entries],
+  );
+  const selectedEntry = useMemo(
+    () => entries.find((entry) => entry.id === selectedEntryId) ?? null,
+    [entries, selectedEntryId],
   );
 
   function resetForm() {
@@ -274,6 +280,9 @@ export function CalendarWorkspace({
         setEntries((current) =>
           current.filter((entry) => entry.id !== nextState.deletedEntryId),
         );
+        setSelectedEntryId((current) =>
+          current === nextState.deletedEntryId ? null : current,
+        );
       }
     } finally {
       setIsDeleting(false);
@@ -292,6 +301,7 @@ export function CalendarWorkspace({
     setStatus(entry.status ?? "Planned");
     setNotes(parsedNotes.notes);
     setActionState(initialActionState);
+    setSelectedEntryId(null);
   }
 
   function suggestPlan() {
@@ -382,6 +392,21 @@ export function CalendarWorkspace({
     );
   }
 
+  function renderBadge(label: string, tone: "emerald" | "zinc" = "zinc") {
+    return (
+      <span
+        className={cn(
+          "inline-flex max-w-full items-center rounded-full border px-2 py-0.5 text-[11px] font-medium",
+          tone === "emerald"
+            ? "border-emerald-300/20 bg-emerald-400/10 text-emerald-200"
+            : "border-white/10 bg-white/[0.04] text-zinc-300",
+        )}
+      >
+        {label}
+      </span>
+    );
+  }
+
   return (
     <div className="space-y-8">
       <div className="grid gap-5 xl:grid-cols-[0.95fr_1.4fr]">
@@ -389,7 +414,10 @@ export function CalendarWorkspace({
           <Card className="border-emerald-300/20">
             <CardHeader>
               <div className="flex items-center gap-3">
-                <div className="flex size-9 items-center justify-center rounded-md bg-emerald-400/10 text-emerald-200">
+                <div
+                  aria-hidden="true"
+                  className="flex size-9 shrink-0 items-center justify-center rounded-md bg-emerald-400/10 text-emerald-200"
+                >
                   <Plus />
                 </div>
                 <div>
@@ -704,60 +732,30 @@ export function CalendarWorkspace({
                   <div className="space-y-3">
                     {dayEntries.length > 0 ? (
                       dayEntries.map((entry) => {
-                        const idea = ideaMap.get(entry.content_idea_id ?? "");
                         const caption = captionMap.get(entryCaptionId(entry) ?? "");
 
                         return (
-                          <div
-                            className="rounded-md border border-white/10 bg-white/[0.035] p-3"
+                          <button
+                            className="w-full rounded-md border border-white/10 bg-white/[0.035] p-3 text-left transition hover:border-emerald-300/30 hover:bg-emerald-400/[0.06] focus:outline-none focus:ring-2 focus:ring-emerald-300/40"
                             key={entry.id}
+                            onClick={() => setSelectedEntryId(entry.id)}
+                            type="button"
                           >
-                            <div className="flex items-start justify-between gap-2">
-                              <div>
-                                <p className="text-sm font-medium leading-5 text-white">
-                                  {entry.title}
-                                </p>
-                                <p className="mt-1 text-xs text-emerald-300">
-                                  {idea?.format ?? "Content idea"}
-                                </p>
-                              </div>
+                            <div className="flex items-center gap-1.5 text-xs text-zinc-400">
+                              <Clock className="size-3 shrink-0" />
+                              <span>{timeLabel(entry.scheduled_time)}</span>
                             </div>
-                            <div className="mt-3 space-y-1 text-xs text-zinc-400">
-                              <p>
-                                <Clock className="mr-1 inline size-3" />
-                                {timeLabel(entry.scheduled_time)} / {entry.platform ?? "Platform"}
-                              </p>
-                              <p>Status: {entry.status ?? "Planned"}</p>
-                              <p>{caption ? "Caption attached" : "No caption"}</p>
-                              <p>Priority: {idea?.priority ?? "Medium"}</p>
+                            <p className="mt-2 overflow-hidden text-sm font-medium leading-5 text-white [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+                              {entry.title}
+                            </p>
+                            <div className="mt-3 flex flex-wrap gap-1.5">
+                              {renderBadge(entry.platform ?? "Platform", "emerald")}
+                              {renderBadge(entry.status ?? "Planned")}
                             </div>
-                            {entryNotes(entry) ? (
-                              <p className="mt-3 text-xs leading-5 text-zinc-500">
-                                {entryNotes(entry)}
-                              </p>
-                            ) : null}
-                            <div className="mt-3 flex gap-2">
-                              <Button
-                                onClick={() => editEntry(entry)}
-                                size="sm"
-                                type="button"
-                                variant="secondary"
-                              >
-                                <Pencil />
-                                Edit
-                              </Button>
-                              <Button
-                                disabled={isDeleting}
-                                onClick={() => removeEntry(entry.id)}
-                                size="sm"
-                                type="button"
-                                variant="secondary"
-                              >
-                                <Trash2 />
-                                Delete
-                              </Button>
+                            <div className="mt-2 text-xs text-zinc-500">
+                              {caption ? "Caption attached" : "No caption"}
                             </div>
-                          </div>
+                          </button>
                         );
                       })
                     ) : (
@@ -774,6 +772,127 @@ export function CalendarWorkspace({
           {renderMessage(deleteState)}
         </section>
       </div>
+
+      {selectedEntry ? (
+        <div
+          aria-labelledby="calendar-entry-title"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-end bg-black/70 p-3 backdrop-blur-sm sm:items-center sm:justify-center"
+          onClick={() => setSelectedEntryId(null)}
+          role="dialog"
+        >
+          <div
+            className="max-h-[90vh] w-full overflow-y-auto rounded-lg border border-white/10 bg-zinc-950 p-5 shadow-2xl shadow-black/40 sm:max-w-xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            {(() => {
+              const idea = ideaMap.get(selectedEntry.content_idea_id ?? "");
+              const caption = captionMap.get(entryCaptionId(selectedEntry) ?? "");
+              const notes = entryNotes(selectedEntry);
+
+              return (
+                <div className="space-y-5">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-[0.2em] text-emerald-300">
+                        Scheduled post
+                      </p>
+                      <h3
+                        className="mt-2 text-xl font-semibold leading-7 text-white"
+                        id="calendar-entry-title"
+                      >
+                        {selectedEntry.title}
+                      </h3>
+                    </div>
+                    <button
+                      aria-label="Close scheduled post details"
+                      className="rounded-md border border-white/10 p-2 text-zinc-400 transition hover:border-white/20 hover:text-white"
+                      onClick={() => setSelectedEntryId(null)}
+                      type="button"
+                    >
+                      <X className="size-4" />
+                    </button>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <DetailItem label="Format" value={idea?.format ?? "Content idea"} />
+                    <DetailItem label="Platform" value={selectedEntry.platform ?? "Platform"} />
+                    <DetailItem
+                      label="Date"
+                      value={
+                        selectedEntry.scheduled_date
+                          ? displayDate(selectedEntry.scheduled_date)
+                          : "No date"
+                      }
+                    />
+                    <DetailItem label="Time" value={timeLabel(selectedEntry.scheduled_time)} />
+                    <DetailItem label="Status" value={selectedEntry.status ?? "Planned"} />
+                    <DetailItem label="Priority" value={idea?.priority ?? "Medium"} />
+                  </div>
+
+                  <div className="rounded-lg border border-white/10 bg-white/[0.025] p-4">
+                    <p className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">
+                      Caption
+                    </p>
+                    {caption ? (
+                      <div className="mt-3 space-y-3 text-sm leading-6 text-zinc-300">
+                        {caption.hook ? (
+                          <p className="font-medium text-white">{caption.hook}</p>
+                        ) : null}
+                        {caption.body ? <p>{caption.body}</p> : null}
+                        {caption.cta ? <p className="text-zinc-400">CTA: {caption.cta}</p> : null}
+                        {caption.hashtags ? (
+                          <p className="text-emerald-200">{caption.hashtags}</p>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <p className="mt-3 text-sm text-zinc-500">No caption attached.</p>
+                    )}
+                  </div>
+
+                  <div className="rounded-lg border border-white/10 bg-white/[0.025] p-4">
+                    <p className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">
+                      Notes
+                    </p>
+                    <p className="mt-3 text-sm leading-6 text-zinc-300">
+                      {notes || "No notes added."}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <Button
+                      onClick={() => editEntry(selectedEntry)}
+                      type="button"
+                      variant="secondary"
+                    >
+                      <Pencil />
+                      Edit
+                    </Button>
+                    <Button
+                      disabled={isDeleting}
+                      onClick={() => removeEntry(selectedEntry.id)}
+                      type="button"
+                      variant="secondary"
+                    >
+                      <Trash2 />
+                      Delete
+                    </Button>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function DetailItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/[0.025] p-3">
+      <p className="text-xs text-zinc-500">{label}</p>
+      <p className="mt-1 text-sm font-medium text-zinc-100">{value}</p>
     </div>
   );
 }
