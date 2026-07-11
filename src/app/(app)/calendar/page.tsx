@@ -17,10 +17,17 @@ export default async function CalendarPage() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const [ideasResult, captionsResult, calendarResult] = await Promise.all([
+  const [profileResult, ideasResult, captionsResult, calendarResult] = await Promise.all([
+    supabase
+      .from("user_creator_profiles")
+      .select("niche, sub_niche")
+      .eq("user_id", user!.id)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
     supabase
       .from("content_ideas")
-      .select("id, title, hook, format, difficulty, goal, status, priority")
+      .select("id, title, hook, niche, sub_niche, format, difficulty, goal, status, priority")
       .eq("user_id", user!.id)
       .order("created_at", { ascending: false }),
     supabase
@@ -38,7 +45,7 @@ export default async function CalendarPage() {
       .order("scheduled_time", { ascending: true }),
   ]);
 
-  if (ideasResult.error || captionsResult.error || calendarResult.error) {
+  if (profileResult.error || ideasResult.error || captionsResult.error || calendarResult.error) {
     return (
       <section className="mx-auto w-full max-w-6xl">
         <div className="flex items-start gap-3 rounded-lg border border-red-400/25 bg-red-400/[0.08] p-4 text-sm text-red-100">
@@ -88,6 +95,8 @@ export default async function CalendarPage() {
 
       <CalendarWorkspace
         captions={(captionsResult.data ?? []) as CalendarCaption[]}
+        currentNiche={profileResult.data?.niche ?? null}
+        currentSubNiche={profileResult.data?.sub_niche ?? null}
         ideas={ideas}
         initialEntries={(calendarResult.data ?? []) as CalendarEntryPayload[]}
       />

@@ -32,6 +32,8 @@ export type CalendarIdea = {
   id: string;
   title: string;
   hook: string | null;
+  niche: string | null;
+  sub_niche: string | null;
   format: string | null;
   difficulty: string | null;
   goal: string | null;
@@ -63,6 +65,8 @@ type SuggestedPost = {
 type CalendarWorkspaceProps = {
   ideas: CalendarIdea[];
   captions: CalendarCaption[];
+  currentNiche: string | null;
+  currentSubNiche: string | null;
   initialEntries: CalendarEntryPayload[];
 };
 
@@ -176,15 +180,58 @@ function platformShortLabel(platform: string | null) {
   }
 }
 
+function ideaMatchesCurrentNiche(
+  idea: CalendarIdea,
+  currentNiche: string | null,
+  currentSubNiche: string | null,
+) {
+  return idea.niche === currentNiche && idea.sub_niche === currentSubNiche;
+}
+
+function ideaGroupLabel(idea: CalendarIdea) {
+  return `${idea.niche ?? "Unknown niche"} / ${idea.sub_niche ?? "General"}`;
+}
+
+function groupIdeasByNiche(ideas: CalendarIdea[]) {
+  return ideas.reduce<Array<{ label: string; ideas: CalendarIdea[] }>>((groups, idea) => {
+    const label = ideaGroupLabel(idea);
+    const existingGroup = groups.find((group) => group.label === label);
+
+    if (existingGroup) {
+      existingGroup.ideas.push(idea);
+      return groups;
+    }
+
+    groups.push({ label, ideas: [idea] });
+    return groups;
+  }, []);
+}
+
+function shortIdeaLabel(idea: CalendarIdea) {
+  const title = idea.title.length > 72 ? `${idea.title.slice(0, 69)}...` : idea.title;
+
+  return idea.format ? `${idea.format} - ${title}` : title;
+}
+
 export function CalendarWorkspace({
   ideas,
   captions,
+  currentNiche,
+  currentSubNiche,
   initialEntries,
 }: CalendarWorkspaceProps) {
   const todayValue = toDateInputValue(new Date());
+  const currentNicheIdeas = ideas.filter((idea) =>
+    ideaMatchesCurrentNiche(idea, currentNiche, currentSubNiche),
+  );
+  const [showAllIdeaNiches, setShowAllIdeaNiches] = useState(false);
+  const visibleIdeaOptions = showAllIdeaNiches ? ideas : currentNicheIdeas;
+  const groupedIdeaOptions = showAllIdeaNiches ? groupIdeasByNiche(visibleIdeaOptions) : [];
   const [weekStart, setWeekStart] = useState(startOfWeek(new Date()));
   const [entries, setEntries] = useState(initialEntries.sort(compareEntries));
-  const [selectedIdeaId, setSelectedIdeaId] = useState(ideas[0]?.id ?? "");
+  const [selectedIdeaId, setSelectedIdeaId] = useState(
+    currentNicheIdeas[0]?.id ?? ideas[0]?.id ?? "",
+  );
   const [selectedCaptionId, setSelectedCaptionId] = useState("");
   const [scheduledDate, setScheduledDate] = useState(todayValue);
   const [scheduledTime, setScheduledTime] = useState("09:00");
@@ -230,7 +277,8 @@ export function CalendarWorkspace({
 
   function resetForm() {
     setEditingEntryId(null);
-    setSelectedIdeaId(ideas[0]?.id ?? "");
+    setShowAllIdeaNiches(false);
+    setSelectedIdeaId(currentNicheIdeas[0]?.id ?? ideas[0]?.id ?? "");
     setSelectedCaptionId("");
     setScheduledDate(todayValue);
     setScheduledTime("09:00");
@@ -308,6 +356,14 @@ export function CalendarWorkspace({
 
   function editEntry(entry: CalendarEntryPayload) {
     const parsedNotes = parseCalendarNotes(entry.notes);
+    const entryIdea = ideas.find((idea) => idea.id === entry.content_idea_id);
+
+    if (
+      entryIdea &&
+      !ideaMatchesCurrentNiche(entryIdea, currentNiche, currentSubNiche)
+    ) {
+      setShowAllIdeaNiches(true);
+    }
 
     setEditingEntryId(entry.id);
     setSelectedIdeaId(entry.content_idea_id ?? ideas[0]?.id ?? "");
@@ -450,24 +506,95 @@ export function CalendarWorkspace({
                 {editingEntryId ? (
                   <input name="entry_id" type="hidden" value={editingEntryId} />
                 ) : null}
-                <label className="block text-xs font-medium text-zinc-500">
-                  Saved idea
-                  <select
-                    className="mt-1 h-11 w-full rounded-md border border-white/10 bg-zinc-950 px-3 text-sm text-zinc-100"
-                    name="content_idea_id"
-                    onChange={(event) => {
-                      setSelectedIdeaId(event.target.value);
-                      setSelectedCaptionId("");
-                    }}
-                    value={selectedIdeaId}
-                  >
-                    {ideas.map((idea) => (
-                      <option key={idea.id} value={idea.id}>
-                        {idea.title}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <div>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <label className="text-xs font-medium text-zinc-500" htmlFor="calendar-idea">
+                      Saved idea
+                    </label>
+                    <div className="flex rounded-md border border-white/10 bg-zinc-950 p-1">
+                      <button
+                        className={cn(
+                          "rounded px-2 py-1 text-xs transition",
+                          !showAllIdeaNiches
+                            ? "bg-emerald-400 text-zinc-950"
+                            : "text-zinc-400 hover:text-white",
+                        )}
+                        onClick={() => {
+                          setShowAllIdeaNiches(false);
+                          setSelectedIdeaId(currentNicheIdeas[0]?.id ?? "");
+                          setSelectedCaptionId("");
+                        }}
+                        type="button"
+                      >
+                        Current niche only
+                      </button>
+                      <button
+                        className={cn(
+                          "rounded px-2 py-1 text-xs transition",
+                          showAllIdeaNiches
+                            ? "bg-emerald-400 text-zinc-950"
+                            : "text-zinc-400 hover:text-white",
+                        )}
+                        onClick={() => {
+                          setShowAllIdeaNiches(true);
+                          setSelectedIdeaId((current) => current || ideas[0]?.id || "");
+                          setSelectedCaptionId("");
+                        }}
+                        type="button"
+                      >
+                        All niches
+                      </button>
+                    </div>
+                  </div>
+
+                  {visibleIdeaOptions.length > 0 ? (
+                    <select
+                      className="mt-2 h-11 w-full rounded-md border border-white/10 bg-zinc-950 px-3 text-sm text-zinc-100"
+                      id="calendar-idea"
+                      name="content_idea_id"
+                      onChange={(event) => {
+                        setSelectedIdeaId(event.target.value);
+                        setSelectedCaptionId("");
+                      }}
+                      value={selectedIdeaId}
+                    >
+                      {showAllIdeaNiches
+                        ? groupedIdeaOptions.map((group) => (
+                            <optgroup key={group.label} label={group.label}>
+                              {group.ideas.map((idea) => (
+                                <option key={idea.id} value={idea.id}>
+                                  {shortIdeaLabel(idea)}
+                                </option>
+                              ))}
+                            </optgroup>
+                          ))
+                        : visibleIdeaOptions.map((idea) => (
+                            <option key={idea.id} value={idea.id}>
+                              {shortIdeaLabel(idea)}
+                            </option>
+                          ))}
+                    </select>
+                  ) : (
+                    <div className="mt-2 rounded-lg border border-white/10 bg-white/[0.025] p-3 text-sm text-zinc-400">
+                      <p className="font-medium text-zinc-200">
+                        No saved ideas for this niche yet.
+                      </p>
+                      <p className="mt-1 text-zinc-500">
+                        Save ideas for this niche first, then schedule them here.
+                      </p>
+                      <Button asChild className="mt-3" size="sm" variant="secondary">
+                        <Link href="/ideas">
+                          Go to Ideas
+                          <ArrowRight />
+                        </Link>
+                      </Button>
+                    </div>
+                  )}
+                  <p className="mt-2 text-xs leading-5 text-zinc-500">
+                    Switch to all niches if you want to schedule older ideas from another content
+                    direction.
+                  </p>
+                </div>
 
                 <label className="block text-xs font-medium text-zinc-500">
                   Saved caption optional
@@ -570,7 +697,7 @@ export function CalendarWorkspace({
                       Cancel edit
                     </Button>
                   ) : null}
-                  <Button disabled={isSaving} type="submit">
+                  <Button disabled={isSaving || !selectedIdeaId} type="submit">
                     {isSaving ? <LoaderCircle className="animate-spin" /> : <Check />}
                     {editingEntryId ? "Save changes" : "Schedule post"}
                   </Button>

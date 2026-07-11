@@ -432,6 +432,25 @@ export function IdeaEngine({ profile, savedIdeas }: IdeaEngineProps) {
           </div>
         </div>
 
+        {state.status === "success" ? (
+          <div
+            className="mb-6 rounded-lg border border-emerald-300/25 bg-emerald-400/[0.08] p-4 text-sm text-emerald-100"
+            role="status"
+          >
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="font-medium">Ideas saved. Ready to write captions?</p>
+                <p className="mt-1 text-emerald-100/75">
+                  Your saved ideas are in the idea bank, and fresh ideas were added to the generator.
+                </p>
+              </div>
+              <Button asChild size="sm" type="button">
+                <Link href="/captions">Go to Captions</Link>
+              </Button>
+            </div>
+          </div>
+        ) : null}
+
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h3 className="text-lg font-semibold text-white">Generated ideas</h3>
@@ -553,17 +572,7 @@ export function IdeaEngine({ profile, savedIdeas }: IdeaEngineProps) {
                 role={state.status === "error" ? "alert" : "status"}
               >
                 {state.status === "success" ? (
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <p className="font-medium">Ideas saved. Ready to write captions?</p>
-                      <p className="mt-1 text-emerald-100/75">
-                        Ideas saved to your idea bank.
-                      </p>
-                    </div>
-                    <Button asChild size="sm" type="button">
-                      <Link href="/captions">Go to Captions</Link>
-                    </Button>
-                  </div>
+                  "Ideas saved to your idea bank."
                 ) : (
                   state.message
                 )}
