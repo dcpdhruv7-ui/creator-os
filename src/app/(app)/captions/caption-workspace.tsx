@@ -19,6 +19,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { WorkflowNextStep } from "@/components/layout/workflow-next-step";
 import { captionFingerprint } from "@/lib/caption-fingerprint";
 import {
   creativeDirectionOptions,
@@ -409,6 +410,22 @@ export function CaptionWorkspace({
 
   return (
     <div className="space-y-10">
+      <WorkflowNextStep
+        buttonLabel="Go to Calendar"
+        description={
+          state.status === "success"
+            ? "Your saved caption is ready to be added to your content calendar."
+            : "Generate and save captions here, then schedule your content into your weekly calendar."
+        }
+        href="/calendar"
+        success={state.status === "success"}
+        title={
+          state.status === "success"
+            ? "Caption saved. Ready to schedule?"
+            : "Ready to plan your posts?"
+        }
+      />
+
       <div className="grid gap-5 lg:grid-cols-[0.9fr_1.4fr]">
         <section>
           <div className="mb-4 flex items-center gap-3">

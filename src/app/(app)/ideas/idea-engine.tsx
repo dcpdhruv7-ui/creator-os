@@ -1,12 +1,12 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import Link from "next/link";
 import { useFormStatus } from "react-dom";
 import { Check, Layers3, LoaderCircle, RefreshCw, Save, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { WorkflowNextStep } from "@/components/layout/workflow-next-step";
 import {
   generateAdaptiveIdeas,
   type GeneratedIdea,
@@ -432,24 +432,23 @@ export function IdeaEngine({ profile, savedIdeas }: IdeaEngineProps) {
           </div>
         </div>
 
-        {state.status === "success" ? (
-          <div
-            className="mb-6 rounded-lg border border-emerald-300/25 bg-emerald-400/[0.08] p-4 text-sm text-emerald-100"
-            role="status"
-          >
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="font-medium">Ideas saved. Ready to write captions?</p>
-                <p className="mt-1 text-emerald-100/75">
-                  Your saved ideas are in the idea bank, and fresh ideas were added to the generator.
-                </p>
-              </div>
-              <Button asChild size="sm" type="button">
-                <Link href="/captions">Go to Captions</Link>
-              </Button>
-            </div>
-          </div>
-        ) : null}
+        <div className="mb-6">
+          <WorkflowNextStep
+            buttonLabel="Go to Captions"
+            description={
+              state.status === "success"
+                ? "Your saved ideas are in the idea bank, and fresh ideas were added to the generator."
+                : "Save ideas here, then turn them into hooks, captions, CTAs, and hashtags."
+            }
+            href="/captions"
+            success={state.status === "success"}
+            title={
+              state.status === "success"
+                ? "Ideas saved. Ready to write captions?"
+                : "Ready to write captions?"
+            }
+          />
+        </div>
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
