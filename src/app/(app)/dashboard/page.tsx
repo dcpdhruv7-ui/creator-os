@@ -16,11 +16,6 @@ import { createClient } from "@/lib/supabase/server";
 
 const dashboardCards = [
   {
-    title: "Analytics",
-    description: "Manual tracking for views, saves, reach, and engagement.",
-    icon: BarChart3,
-  },
-  {
     title: "Recommendations",
     description: "Simple growth recommendations based on your inputs.",
     icon: Sparkles,
@@ -64,6 +59,7 @@ export default async function DashboardPage() {
     captionsResult,
     calendarWeekResult,
     nextCalendarResult,
+    analyticsResult,
   ] = await Promise.all([
       supabase.from("profiles").select("primary_niche").eq("id", user!.id).maybeSingle(),
       supabase
@@ -99,6 +95,12 @@ export default async function DashboardPage() {
         .order("scheduled_date", { ascending: true })
         .order("scheduled_time", { ascending: true })
         .limit(1),
+      supabase
+        .from("analytics_entries")
+        .select("post_title, views", { count: "exact" })
+        .eq("user_id", user!.id)
+        .order("views", { ascending: false })
+        .limit(1),
     ]);
   const niche = creatorProfile?.niche ?? profile?.primary_niche ?? null;
   const subNiche = creatorProfile?.sub_niche ?? null;
@@ -111,6 +113,17 @@ export default async function DashboardPage() {
   const latestCaptionType = captionsResult.data?.[0]?.caption_type ?? null;
   const scheduledThisWeekCount = calendarWeekResult.count ?? 0;
   const nextScheduledPost = nextCalendarResult.data?.[0] ?? null;
+  const analyticsCount = analyticsResult.count ?? 0;
+  const bestAnalyticsPost = analyticsResult.data?.[0] ?? null;
+  const totalViews =
+    analyticsCount > 0
+      ? (
+          await supabase
+            .from("analytics_entries")
+            .select("views")
+            .eq("user_id", user!.id)
+        ).data?.reduce((sum, entry) => sum + (entry.views ?? 0), 0) ?? 0
+      : 0;
 
   return (
     <section className="mx-auto w-full max-w-6xl">
@@ -269,6 +282,33 @@ export default async function DashboardPage() {
             >
               <Link href={ideaCount > 0 ? "/calendar" : "/ideas"}>
                 Open calendar
+                <ArrowRight />
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card className="min-h-48 border-emerald-300/20">
+          <CardHeader>
+            <div className="mb-3 flex size-10 items-center justify-center rounded-md border border-emerald-300/20 bg-emerald-400/10 text-emerald-200">
+              <BarChart3 className="size-5" />
+            </div>
+            <CardTitle>Analytics</CardTitle>
+            <CardDescription>
+              <span className="block text-base font-medium text-zinc-100">
+                {analyticsCount} tracked post{analyticsCount === 1 ? "" : "s"}
+              </span>
+              <span className="mt-1 block">
+                {analyticsCount > 0
+                  ? `${totalViews.toLocaleString()} total views. Best: ${bestAnalyticsPost?.post_title ?? "Untitled post"}`
+                  : "Manually track views, likes, saves, and engagement."}
+              </span>
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild size="sm" variant={analyticsCount > 0 ? "secondary" : "default"}>
+              <Link href="/analytics">
+                Open analytics
                 <ArrowRight />
               </Link>
             </Button>

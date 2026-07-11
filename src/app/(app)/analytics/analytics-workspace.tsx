@@ -1,0 +1,702 @@
+"use client";
+
+import { useMemo, useState, type FormEvent } from "react";
+import {
+  BarChart3,
+  Check,
+  LoaderCircle,
+  Pencil,
+  Plus,
+  Trash2,
+} from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
+import {
+  createAnalyticsEntry,
+  deleteAnalyticsEntry,
+  updateAnalyticsEntry,
+  type AnalyticsActionState,
+  type AnalyticsEntryPayload,
+} from "./actions";
+
+export type AnalyticsIdea = {
+  id: string;
+  title: string;
+  niche: string | null;
+  sub_niche: string | null;
+  format: string | null;
+};
+
+export type AnalyticsCalendarPost = {
+  id: string;
+  content_idea_id: string | null;
+  title: string;
+  platform: string | null;
+  scheduled_date: string | null;
+  scheduled_time: string | null;
+  status: string | null;
+};
+
+type AnalyticsWorkspaceProps = {
+  entries: AnalyticsEntryPayload[];
+  ideas: AnalyticsIdea[];
+  calendarPosts: AnalyticsCalendarPost[];
+  currentNiche: string | null;
+  currentSubNiche: string | null;
+};
+
+const platforms = ["Instagram", "YouTube Shorts", "TikTok", "LinkedIn", "Other"];
+const initialActionState: AnalyticsActionState = { status: "idle", message: "" };
+
+function dateInputValue(date: Date) {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function displayDate(value: string | null) {
+  if (!value) return "No date";
+
+  return new Date(value).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function metric(value: number | null | undefined) {
+  return value ?? 0;
+}
+
+function engagementRate(entry: Pick<AnalyticsEntryPayload, "views" | "likes" | "comments" | "shares" | "saves">) {
+  const views = metric(entry.views);
+
+  if (views <= 0) return 0;
+
+  return ((metric(entry.likes) + metric(entry.comments) + metric(entry.shares) + metric(entry.saves)) / views) * 100;
+}
+
+function formatPercent(value: number) {
+  return `${value.toFixed(value >= 10 ? 1 : 2)}%`;
+}
+
+function formatNumber(value: number | null | undefined) {
+  return metric(value).toLocaleString();
+}
+
+function entryMatchesCurrentNiche(
+  entry: AnalyticsEntryPayload,
+  currentNiche: string | null,
+  currentSubNiche: string | null,
+) {
+  if (!entry.niche && !entry.sub_niche) {
+    return true;
+  }
+
+  return entry.niche === currentNiche && entry.sub_niche === currentSubNiche;
+}
+
+function sumBy<T>(items: T[], getKey: (item: T) => string | null | undefined, getValue: (item: T) => number) {
+  const totals = new Map<string, number>();
+
+  items.forEach((item) => {
+    const key = getKey(item) || "Unknown";
+    totals.set(key, (totals.get(key) ?? 0) + getValue(item));
+  });
+
+  return [...totals.entries()].sort((a, b) => b[1] - a[1]);
+}
+
+function AnalyticsStatCard({
+  label,
+  value,
+  helper,
+}: {
+  label: string;
+  value: string;
+  helper: string;
+}) {
+  return (
+    <Card className="border-emerald-300/20">
+      <CardHeader>
+        <CardTitle className="text-sm text-zinc-400">{label}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <p className="text-2xl font-semibold text-white">{value}</p>
+        <p className="mt-2 text-sm leading-6 text-zinc-500">{helper}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+export function AnalyticsWorkspace({
+  entries,
+  ideas,
+  calendarPosts,
+  currentNiche,
+  currentSubNiche,
+}: AnalyticsWorkspaceProps) {
+  const today = dateInputValue(new Date());
+  const [localEntries, setLocalEntries] = useState(entries);
+  const [showAllNiches, setShowAllNiches] = useState(false);
+  const [platformFilter, setPlatformFilter] = useState("All");
+  const [actionState, setActionState] = useState(initialActionState);
+  const [deleteState, setDeleteState] = useState(initialActionState);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
+  const [selectedCalendarId, setSelectedCalendarId] = useState("");
+  const [selectedIdeaId, setSelectedIdeaId] = useState("");
+  const [platform, setPlatform] = useState("Instagram");
+  const [postedAt, setPostedAt] = useState(today);
+  const [postTitle, setPostTitle] = useState("");
+  const [views, setViews] = useState("0");
+  const [likes, setLikes] = useState("0");
+  const [comments, setComments] = useState("0");
+  const [shares, setShares] = useState("0");
+  const [saves, setSaves] = useState("0");
+  const [reach, setReach] = useState("0");
+  const [followsGained, setFollowsGained] = useState("0");
+  const [notes, setNotes] = useState("");
+  const ideaMap = useMemo(() => new Map(ideas.map((idea) => [idea.id, idea])), [ideas]);
+  const calendarMap = useMemo(
+    () => new Map(calendarPosts.map((post) => [post.id, post])),
+    [calendarPosts],
+  );
+  const visibleEntries = localEntries.filter((entry) => {
+    const nicheMatch = showAllNiches
+      ? true
+      : entryMatchesCurrentNiche(entry, currentNiche, currentSubNiche);
+    const platformMatch = platformFilter === "All" || entry.platform === platformFilter;
+
+    return nicheMatch && platformMatch;
+  });
+  const totalViews = visibleEntries.reduce((sum, entry) => sum + metric(entry.views), 0);
+  const totalEngagements = visibleEntries.reduce(
+    (sum, entry) =>
+      sum + metric(entry.likes) + metric(entry.comments) + metric(entry.shares) + metric(entry.saves),
+    0,
+  );
+  const averageEngagement = totalViews > 0 ? (totalEngagements / totalViews) * 100 : 0;
+  const bestPost = [...visibleEntries].sort((a, b) => metric(b.views) - metric(a.views))[0];
+  const bestPlatform = sumBy(visibleEntries, (entry) => entry.platform, (entry) => metric(entry.views))[0];
+  const bestFormat = sumBy(
+    visibleEntries,
+    (entry) => ideaMap.get(entry.content_idea_id ?? "")?.format,
+    (entry) => metric(entry.views),
+  )[0];
+  const topByViews = [...visibleEntries].sort((a, b) => metric(b.views) - metric(a.views)).slice(0, 5);
+  const topByEngagement = [...visibleEntries]
+    .sort((a, b) => engagementRate(b) - engagementRate(a))
+    .slice(0, 5);
+  const insights = buildInsights(visibleEntries, bestPlatform?.[0], bestFormat?.[0]);
+
+  function resetForm() {
+    setEditingEntryId(null);
+    setSelectedCalendarId("");
+    setSelectedIdeaId("");
+    setPlatform("Instagram");
+    setPostedAt(today);
+    setPostTitle("");
+    setViews("0");
+    setLikes("0");
+    setComments("0");
+    setShares("0");
+    setSaves("0");
+    setReach("0");
+    setFollowsGained("0");
+    setNotes("");
+  }
+
+  function selectCalendarPost(calendarId: string) {
+    setSelectedCalendarId(calendarId);
+
+    const post = calendarMap.get(calendarId);
+
+    if (!post) {
+      return;
+    }
+
+    setSelectedIdeaId(post.content_idea_id ?? "");
+    setPlatform(post.platform ?? "Instagram");
+    setPostedAt(post.scheduled_date ?? today);
+    setPostTitle(post.title);
+  }
+
+  function selectIdea(ideaId: string) {
+    setSelectedIdeaId(ideaId);
+
+    const idea = ideaMap.get(ideaId);
+
+    if (idea && !postTitle.trim()) {
+      setPostTitle(idea.title);
+    }
+  }
+
+  function editEntry(entry: AnalyticsEntryPayload) {
+    setEditingEntryId(entry.id);
+    setSelectedCalendarId(entry.content_calendar_id ?? "");
+    setSelectedIdeaId(entry.content_idea_id ?? "");
+    setPlatform(entry.platform ?? "Instagram");
+    setPostedAt(entry.posted_at ? entry.posted_at.slice(0, 10) : today);
+    setPostTitle(entry.post_title ?? "");
+    setViews(String(metric(entry.views)));
+    setLikes(String(metric(entry.likes)));
+    setComments(String(metric(entry.comments)));
+    setShares(String(metric(entry.shares)));
+    setSaves(String(metric(entry.saves)));
+    setReach(String(metric(entry.reach)));
+    setFollowsGained(String(metric(entry.follows_gained)));
+    setNotes(entry.notes ?? "");
+    setActionState(initialActionState);
+  }
+
+  async function saveEntry(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (isSaving) return;
+
+    setIsSaving(true);
+
+    try {
+      const formData = new FormData(event.currentTarget);
+      const nextState = editingEntryId
+        ? await updateAnalyticsEntry(actionState, formData)
+        : await createAnalyticsEntry(actionState, formData);
+
+      setActionState(nextState);
+
+      if (nextState.status !== "success" || !nextState.entry) {
+        return;
+      }
+
+      setLocalEntries((current) =>
+        editingEntryId
+          ? current.map((entry) => (entry.id === nextState.entry!.id ? nextState.entry! : entry))
+          : [nextState.entry!, ...current],
+      );
+      resetForm();
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function removeEntry(entryId: string) {
+    if (isDeleting || !window.confirm("Delete this analytics entry?")) {
+      return;
+    }
+
+    setIsDeleting(true);
+
+    try {
+      const formData = new FormData();
+      formData.set("entry_id", entryId);
+      const nextState = await deleteAnalyticsEntry(deleteState, formData);
+
+      setDeleteState(nextState);
+
+      if (nextState.status === "success" && nextState.deletedEntryId) {
+        setLocalEntries((current) =>
+          current.filter((entry) => entry.id !== nextState.deletedEntryId),
+        );
+        if (editingEntryId === nextState.deletedEntryId) {
+          resetForm();
+        }
+      }
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
+  function renderMessage(state: AnalyticsActionState) {
+    if (!state.message) return null;
+
+    return (
+      <div
+        className={cn(
+          "rounded-lg border px-4 py-3 text-sm",
+          state.status === "success"
+            ? "border-emerald-300/25 bg-emerald-400/[0.08] text-emerald-100"
+            : "border-red-400/25 bg-red-400/[0.08] text-red-100",
+        )}
+        role={state.status === "error" ? "alert" : "status"}
+      >
+        {state.message}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-8">
+      <div className="grid gap-5 xl:grid-cols-[0.95fr_1.45fr]">
+        <Card className="border-emerald-300/20">
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <div className="flex size-9 items-center justify-center rounded-md bg-emerald-400/10 text-emerald-200">
+                <Plus />
+              </div>
+              <div>
+                <CardTitle>{editingEntryId ? "Edit analytics entry" : "Add analytics entry"}</CardTitle>
+                <p className="mt-1 text-sm text-zinc-400">
+                  Add post results manually after publishing.
+                </p>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <form className="space-y-4" onSubmit={saveEntry}>
+              {editingEntryId ? <input name="entry_id" type="hidden" value={editingEntryId} /> : null}
+
+              <label className="block text-xs font-medium text-zinc-500">
+                Scheduled calendar post optional
+                <select
+                  className="mt-1 h-11 w-full rounded-md border border-white/10 bg-zinc-950 px-3 text-sm text-zinc-100"
+                  name="content_calendar_id"
+                  onChange={(event) => selectCalendarPost(event.target.value)}
+                  value={selectedCalendarId}
+                >
+                  <option value="">Manual entry without calendar post</option>
+                  {calendarPosts.map((post) => (
+                    <option key={post.id} value={post.id}>
+                      {post.scheduled_date ?? "No date"} - {post.title}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="block text-xs font-medium text-zinc-500">
+                Saved idea optional
+                <select
+                  className="mt-1 h-11 w-full rounded-md border border-white/10 bg-zinc-950 px-3 text-sm text-zinc-100"
+                  name="content_idea_id"
+                  onChange={(event) => selectIdea(event.target.value)}
+                  value={selectedIdeaId}
+                >
+                  <option value="">No linked idea</option>
+                  {ideas.map((idea) => (
+                    <option key={idea.id} value={idea.id}>
+                      {idea.title}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="block text-xs font-medium text-zinc-500">
+                Post title optional
+                <Input
+                  name="post_title"
+                  onChange={(event) => setPostTitle(event.target.value)}
+                  placeholder="Manual post title"
+                  value={postTitle}
+                />
+              </label>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="text-xs font-medium text-zinc-500">
+                  Platform
+                  <select
+                    className="mt-1 h-11 w-full rounded-md border border-white/10 bg-zinc-950 px-3 text-sm text-zinc-100"
+                    name="platform"
+                    onChange={(event) => setPlatform(event.target.value)}
+                    value={platform}
+                  >
+                    {platforms.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-xs font-medium text-zinc-500">
+                  Date posted
+                  <Input
+                    name="posted_at"
+                    onChange={(event) => setPostedAt(event.target.value)}
+                    type="date"
+                    value={postedAt}
+                  />
+                </label>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {[
+                  ["views", "Views", views, setViews],
+                  ["likes", "Likes", likes, setLikes],
+                  ["comments", "Comments", comments, setComments],
+                  ["shares", "Shares", shares, setShares],
+                  ["saves", "Saves", saves, setSaves],
+                  ["reach", "Reach optional", reach, setReach],
+                  ["follows_gained", "Follows gained optional", followsGained, setFollowsGained],
+                ].map(([name, label, value, setter]) => (
+                  <label className="text-xs font-medium text-zinc-500" key={name as string}>
+                    {label as string}
+                    <Input
+                      min={0}
+                      name={name as string}
+                      onChange={(event) => (setter as (value: string) => void)(event.target.value)}
+                      type="number"
+                      value={value as string}
+                    />
+                  </label>
+                ))}
+              </div>
+
+              <label className="block text-xs font-medium text-zinc-500">
+                Notes optional
+                <Textarea
+                  name="notes"
+                  onChange={(event) => setNotes(event.target.value)}
+                  placeholder="Add context, lessons, or what you would change next time."
+                  value={notes}
+                />
+              </label>
+
+              {renderMessage(actionState)}
+
+              <div className="flex flex-wrap justify-end gap-2">
+                {editingEntryId ? (
+                  <Button onClick={resetForm} type="button" variant="secondary">
+                    Cancel edit
+                  </Button>
+                ) : null}
+                <Button disabled={isSaving} type="submit">
+                  {isSaving ? <LoaderCircle className="animate-spin" /> : <Check />}
+                  {editingEntryId ? "Save changes" : "Save analytics"}
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+
+        <section className="space-y-5">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <AnalyticsStatCard
+              helper="Entries in the current filter."
+              label="Total posts tracked"
+              value={String(visibleEntries.length)}
+            />
+            <AnalyticsStatCard
+              helper="Views from tracked posts."
+              label="Total views"
+              value={totalViews.toLocaleString()}
+            />
+            <AnalyticsStatCard
+              helper="Likes, comments, shares, and saves divided by views."
+              label="Average engagement"
+              value={totalViews > 0 ? formatPercent(averageEngagement) : "Not enough data"}
+            />
+            <AnalyticsStatCard
+              helper={bestPost?.post_title ?? "Track more posts to find a leader."}
+              label="Best post"
+              value={bestPost ? formatNumber(bestPost.views) : "No data"}
+            />
+            <AnalyticsStatCard
+              helper={bestPlatform ? `${formatNumber(bestPlatform[1])} views` : "No platform leader yet."}
+              label="Best platform"
+              value={bestPlatform?.[0] ?? "No data"}
+            />
+            <AnalyticsStatCard
+              helper={bestFormat ? `${formatNumber(bestFormat[1])} views` : "Link ideas to show format insights."}
+              label="Best format"
+              value={bestFormat?.[0] ?? "No data"}
+            />
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Insights</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ul className="space-y-3 text-sm leading-6 text-zinc-300">
+                {insights.map((insight) => (
+                  <li className="rounded-lg border border-white/10 bg-white/[0.025] p-3" key={insight}>
+                    {insight}
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        </section>
+      </div>
+
+      <section className="space-y-5 border-t border-white/10 pt-8">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-white">Performance entries</h3>
+            <p className="mt-1 text-sm text-zinc-400">
+              Filter tracked posts by platform and current niche.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <select
+              className="h-10 rounded-md border border-white/10 bg-zinc-950 px-3 text-sm text-zinc-100"
+              onChange={(event) => setPlatformFilter(event.target.value)}
+              value={platformFilter}
+            >
+              <option value="All">All platforms</option>
+              {platforms.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+            <Button
+              onClick={() => setShowAllNiches((current) => !current)}
+              size="sm"
+              type="button"
+              variant="secondary"
+            >
+              {showAllNiches ? "Show current niche only" : "Show all niches"}
+            </Button>
+          </div>
+        </div>
+
+        {renderMessage(deleteState)}
+
+        {visibleEntries.length > 0 ? (
+          <div className="grid gap-4">
+            {visibleEntries.map((entry) => (
+              <Card key={entry.id}>
+                <CardHeader>
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <p className="text-xs text-emerald-300">
+                        {entry.platform ?? "Platform"} / {displayDate(entry.posted_at)}
+                      </p>
+                      <CardTitle className="mt-2 text-lg">
+                        {entry.post_title ?? "Manual analytics entry"}
+                      </CardTitle>
+                      <p className="mt-2 text-sm text-zinc-500">
+                        {entry.niche ? `${entry.niche} / ${entry.sub_niche ?? "General"}` : "Manual entry"}
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button onClick={() => editEntry(entry)} size="sm" type="button" variant="secondary">
+                        <Pencil />
+                        Edit
+                      </Button>
+                      <Button
+                        disabled={isDeleting}
+                        onClick={() => removeEntry(entry.id)}
+                        size="sm"
+                        type="button"
+                        variant="secondary"
+                      >
+                        <Trash2 />
+                        Delete
+                      </Button>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-3 text-sm sm:grid-cols-3 lg:grid-cols-7">
+                    <Metric label="Views" value={formatNumber(entry.views)} />
+                    <Metric label="Likes" value={formatNumber(entry.likes)} />
+                    <Metric label="Comments" value={formatNumber(entry.comments)} />
+                    <Metric label="Shares" value={formatNumber(entry.shares)} />
+                    <Metric label="Saves" value={formatNumber(entry.saves)} />
+                    <Metric label="Reach" value={formatNumber(entry.reach)} />
+                    <Metric label="Engagement" value={formatPercent(engagementRate(entry))} />
+                  </div>
+                  {entry.notes ? (
+                    <p className="mt-4 rounded-lg border border-white/10 bg-white/[0.025] p-3 text-sm leading-6 text-zinc-400">
+                      {entry.notes}
+                    </p>
+                  ) : null}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-lg border border-white/10 bg-white/[0.025] p-6 text-sm text-zinc-500">
+            <p className="font-medium text-zinc-300">No analytics tracked yet.</p>
+            <p className="mt-2">
+              After posting your content, add views, likes, comments, saves, and shares here.
+            </p>
+            <Button className="mt-4" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} size="sm">
+              Add first analytics entry
+            </Button>
+          </div>
+        )}
+      </section>
+
+      <div className="grid gap-5 lg:grid-cols-2">
+        <TopContentCard entries={topByViews} title="Top 5 by views" />
+        <TopContentCard entries={topByEngagement} title="Top 5 by engagement rate" />
+      </div>
+    </div>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/[0.025] p-3">
+      <p className="text-xs text-zinc-500">{label}</p>
+      <p className="mt-1 font-medium text-zinc-100">{value}</p>
+    </div>
+  );
+}
+
+function TopContentCard({ entries, title }: { entries: AnalyticsEntryPayload[]; title: string }) {
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-3">
+          <BarChart3 className="size-5 text-emerald-300" />
+          <CardTitle>{title}</CardTitle>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {entries.length > 0 ? (
+          <div className="space-y-3">
+            {entries.map((entry, index) => (
+              <div className="rounded-lg border border-white/10 bg-white/[0.025] p-3" key={entry.id}>
+                <p className="text-xs text-emerald-300">#{index + 1}</p>
+                <p className="mt-1 text-sm font-medium text-white">
+                  {entry.post_title ?? "Manual analytics entry"}
+                </p>
+                <p className="mt-1 text-xs text-zinc-500">
+                  {formatNumber(entry.views)} views / {formatPercent(engagementRate(entry))} engagement
+                </p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-zinc-500">Track posts to build this list.</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function buildInsights(entries: AnalyticsEntryPayload[], bestPlatform?: string, bestFormat?: string) {
+  if (entries.length < 3) {
+    return ["Track at least 3 posts to unlock better insights."];
+  }
+
+  const insights = [];
+
+  if (bestPlatform && bestPlatform !== "Unknown") {
+    insights.push(`Your ${bestPlatform} posts are getting the most views.`);
+  }
+
+  if (bestFormat && bestFormat !== "Unknown") {
+    insights.push(`${bestFormat} posts are performing best by views right now.`);
+  }
+
+  if (entries.some((entry) => metric(entry.saves) > 0)) {
+    insights.push("Posts with saves are likely useful, educational, or worth revisiting.");
+  }
+
+  if (entries.every((entry) => metric(entry.views) === 0)) {
+    insights.push("Add views to start seeing stronger performance patterns.");
+  }
+
+  return insights.length > 0 ? insights : ["Keep tracking posts to reveal clearer patterns."];
+}
