@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -15,6 +15,15 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Creator OS",
   description: "A niche-based content strategy app for creators.",
+  manifest: "/manifest.webmanifest",
+  icons: {
+    icon: "/creator-os-icon.svg",
+    apple: "/creator-os-icon.svg",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#10D39B",
 };
 
 export default function RootLayout({
