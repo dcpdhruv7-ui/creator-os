@@ -16,11 +16,6 @@ import { createClient } from "@/lib/supabase/server";
 
 const dashboardCards = [
   {
-    title: "Calendar",
-    description: "Your weekly content plan will be organized here.",
-    icon: CalendarDays,
-  },
-  {
     title: "Analytics",
     description: "Manual tracking for views, saves, reach, and engagement.",
     icon: BarChart3,
@@ -32,13 +27,44 @@ const dashboardCards = [
   },
 ];
 
+function dateInputValue(date: Date) {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function weekBounds() {
+  const today = new Date();
+  const start = new Date(today);
+  const day = start.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  start.setDate(start.getDate() + diff);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+
+  return {
+    start: dateInputValue(start),
+    end: dateInputValue(end),
+    today: dateInputValue(today),
+  };
+}
+
 export default async function DashboardPage() {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  const [{ data: profile }, { data: creatorProfile }, ideasResult, captionsResult] =
-    await Promise.all([
+  const currentWeek = weekBounds();
+  const [
+    { data: profile },
+    { data: creatorProfile },
+    ideasResult,
+    captionsResult,
+    calendarWeekResult,
+    nextCalendarResult,
+  ] = await Promise.all([
       supabase.from("profiles").select("primary_niche").eq("id", user!.id).maybeSingle(),
       supabase
         .from("user_creator_profiles")
@@ -59,6 +85,20 @@ export default async function DashboardPage() {
         .eq("user_id", user!.id)
         .order("created_at", { ascending: false })
         .limit(1),
+      supabase
+        .from("content_calendar")
+        .select("id", { count: "exact" })
+        .eq("user_id", user!.id)
+        .gte("scheduled_date", currentWeek.start)
+        .lte("scheduled_date", currentWeek.end),
+      supabase
+        .from("content_calendar")
+        .select("title, scheduled_date, scheduled_time, platform")
+        .eq("user_id", user!.id)
+        .gte("scheduled_date", currentWeek.today)
+        .order("scheduled_date", { ascending: true })
+        .order("scheduled_time", { ascending: true })
+        .limit(1),
     ]);
   const niche = creatorProfile?.niche ?? profile?.primary_niche ?? null;
   const subNiche = creatorProfile?.sub_niche ?? null;
@@ -69,6 +109,8 @@ export default async function DashboardPage() {
   const latestIdea = ideasResult.data?.[0]?.title ?? null;
   const captionCount = captionsResult.count ?? 0;
   const latestCaptionType = captionsResult.data?.[0]?.caption_type ?? null;
+  const scheduledThisWeekCount = calendarWeekResult.count ?? 0;
+  const nextScheduledPost = nextCalendarResult.data?.[0] ?? null;
 
   return (
     <section className="mx-auto w-full max-w-6xl">
@@ -196,6 +238,37 @@ export default async function DashboardPage() {
             <Button asChild size="sm" variant={captionCount > 0 ? "secondary" : "default"}>
               <Link href={ideaCount > 0 ? "/captions" : "/ideas"}>
                 Generate captions
+                <ArrowRight />
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card className="min-h-48 border-emerald-300/20">
+          <CardHeader>
+            <div className="mb-3 flex size-10 items-center justify-center rounded-md border border-emerald-300/20 bg-emerald-400/10 text-emerald-200">
+              <CalendarDays className="size-5" />
+            </div>
+            <CardTitle>Calendar</CardTitle>
+            <CardDescription>
+              <span className="block text-base font-medium text-zinc-100">
+                {scheduledThisWeekCount} scheduled this week
+              </span>
+              <span className="mt-1 block">
+                {nextScheduledPost
+                  ? `Next: ${nextScheduledPost.title} on ${nextScheduledPost.scheduled_date} at ${nextScheduledPost.scheduled_time?.slice(0, 5) ?? "no time"}`
+                  : "Plan your next saved idea into the weekly calendar."}
+              </span>
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button
+              asChild
+              size="sm"
+              variant={scheduledThisWeekCount > 0 ? "secondary" : "default"}
+            >
+              <Link href={ideaCount > 0 ? "/calendar" : "/ideas"}>
+                Open calendar
                 <ArrowRight />
               </Link>
             </Button>
