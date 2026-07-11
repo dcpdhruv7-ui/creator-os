@@ -8,11 +8,30 @@ import {
 } from "@/lib/content-ideas";
 import { createClient } from "@/lib/supabase/server";
 
+export type SavedIdeaPayload = {
+  id: string;
+  title: string;
+  hook: string | null;
+  niche: string | null;
+  sub_niche: string | null;
+  format: string | null;
+  shot_list: string | null;
+  caption_angle: string | null;
+  difficulty: string | null;
+  goal: string | null;
+  status: string | null;
+  priority: string | null;
+  created_at: string | null;
+};
+
 export type SaveIdeasState = {
   status: "idle" | "success" | "error";
   message: string;
   savedIdeaKeys?: string[];
   savedIdeaTitles?: string[];
+  savedIdeas?: SavedIdeaPayload[];
+  duplicateIdeas?: SavedIdeaPayload[];
+  skippedIdeaTitles?: string[];
 };
 
 export type DeleteIdeasState = {
@@ -23,6 +42,8 @@ export type DeleteIdeasState = {
 
 const allowedStatuses = ["Idea", "Scripted", "Shot", "Editing", "Scheduled", "Posted"];
 const allowedPriorities = ["Low", "Medium", "High"];
+const savedIdeaSelect =
+  "id, title, hook, niche, sub_niche, format, shot_list, caption_angle, difficulty, goal, status, priority, created_at";
 
 function selectedCreatorNames(value: unknown) {
   if (!Array.isArray(value)) {
@@ -115,7 +136,7 @@ export async function saveGeneratedIdeas(
   const supabase = await createClient();
   const { data: existingIdeas, error: existingError } = await supabase
     .from("content_ideas")
-    .select("title")
+    .select(savedIdeaSelect)
     .eq("user_id", result.userId)
     .in(
       "title",
@@ -129,42 +150,57 @@ export async function saveGeneratedIdeas(
 
   const existingTitles = new Set((existingIdeas ?? []).map((idea) => idea.title));
   const newIdeas = ideas.filter((idea) => !existingTitles.has(idea.title));
+  let insertedIdeas: SavedIdeaPayload[] = [];
 
   if (newIdeas.length > 0) {
-    const { error: insertError } = await supabase.from("content_ideas").insert(
-      newIdeas.map((idea) => ({
-        user_id: result.userId,
-        title: idea.title,
-        niche: idea.niche,
-        sub_niche: idea.sub_niche,
-        hook: idea.hook,
-        format: idea.format,
-        shot_list: idea.shot_list,
-        caption_angle: idea.caption_angle,
-        difficulty: idea.difficulty,
-        goal: idea.goal,
-        status: idea.status,
-        priority: idea.priority,
-      })),
-    );
+    const { data: insertedData, error: insertError } = await supabase
+      .from("content_ideas")
+      .insert(
+        newIdeas.map((idea) => ({
+          user_id: result.userId,
+          title: idea.title,
+          niche: idea.niche,
+          sub_niche: idea.sub_niche,
+          hook: idea.hook,
+          format: idea.format,
+          shot_list: idea.shot_list,
+          caption_angle: idea.caption_angle,
+          difficulty: idea.difficulty,
+          goal: idea.goal,
+          status: idea.status,
+          priority: idea.priority,
+        })),
+      )
+      .select(savedIdeaSelect);
 
     if (insertError) {
       console.error("Content idea save failed:", insertError.message);
       return { status: "error", message: "We could not save your ideas. Please try again." };
     }
+
+    insertedIdeas = (insertedData ?? []) as SavedIdeaPayload[];
   }
 
   revalidatePath("/ideas");
   revalidatePath("/dashboard");
 
+  const duplicateIdeas = (existingIdeas ?? []) as SavedIdeaPayload[];
+  const skippedIdeaTitles = duplicateIdeas.map((idea) => idea.title);
+  const message =
+    insertedIdeas.length > 0 && duplicateIdeas.length > 0
+      ? "Ideas saved to your idea bank. Fresh ideas added. Some ideas were already saved."
+      : insertedIdeas.length > 0
+        ? "Ideas saved to your idea bank. Fresh ideas added."
+        : "Some ideas were already saved.";
+
   return {
     status: "success",
-    message:
-      newIdeas.length > 0
-        ? "Ideas saved. Fresh ideas added to your generator."
-        : "Those ideas are already in your idea bank.",
+    message,
     savedIdeaKeys: newIdeas.map((idea) => idea.key),
     savedIdeaTitles: newIdeas.map((idea) => idea.title),
+    savedIdeas: insertedIdeas,
+    duplicateIdeas,
+    skippedIdeaTitles,
   };
 }
 

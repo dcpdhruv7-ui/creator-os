@@ -17,19 +17,11 @@ import {
   type DeleteIdeasState,
   saveGeneratedIdeas,
   type SaveIdeasState,
+  type SavedIdeaPayload,
   updateSavedIdea,
 } from "./actions";
 
-export type SavedIdea = {
-  id: string;
-  title: string;
-  hook: string | null;
-  format: string | null;
-  difficulty: string | null;
-  goal: string | null;
-  status: string | null;
-  priority: string | null;
-};
+export type SavedIdea = SavedIdeaPayload;
 
 type IdeaEngineProps = {
   profile: IdeaProfile;
@@ -40,6 +32,41 @@ const initialState: SaveIdeasState = { status: "idle", message: "" };
 const initialDeleteState: DeleteIdeasState = { status: "idle", message: "" };
 const statuses = ["Idea", "Scripted", "Shot", "Editing", "Scheduled", "Posted"];
 const priorities = ["Low", "Medium", "High"];
+
+function normalizeSavedIdeaText(value: string | null | undefined) {
+  return (value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function savedIdeaFingerprint(idea: Pick<SavedIdea, "title" | "hook" | "format">) {
+  return [
+    normalizeSavedIdeaText(idea.title),
+    normalizeSavedIdeaText(idea.hook),
+    normalizeSavedIdeaText(idea.format),
+  ].join("|");
+}
+
+function mergeSavedIdeas(currentIdeas: SavedIdea[], incomingIdeas: SavedIdea[]) {
+  const byId = new Set(currentIdeas.map((idea) => idea.id));
+  const byFingerprint = new Set(currentIdeas.map((idea) => savedIdeaFingerprint(idea)));
+  const nextIdeas = [...currentIdeas];
+
+  incomingIdeas.forEach((idea) => {
+    const fingerprint = savedIdeaFingerprint(idea);
+
+    if (byId.has(idea.id) || byFingerprint.has(fingerprint)) {
+      return;
+    }
+
+    byId.add(idea.id);
+    byFingerprint.add(fingerprint);
+    nextIdeas.unshift(idea);
+  });
+
+  return nextIdeas;
+}
 
 function SaveIdeasButton({ disabled, pending }: { disabled: boolean; pending: boolean }) {
   return (
@@ -125,7 +152,24 @@ export function IdeaEngine({ profile, savedIdeas }: IdeaEngineProps) {
       const nextState = await saveGeneratedIdeas(state, formData);
       setState(nextState);
 
-      if (nextState.status !== "success" || !nextState.savedIdeaKeys?.length) {
+      if (nextState.status !== "success") {
+        return;
+      }
+
+      const returnedSavedIdeas = [
+        ...(nextState.savedIdeas ?? []),
+        ...(nextState.duplicateIdeas ?? []),
+      ];
+
+      if (returnedSavedIdeas.length > 0) {
+        setLocalSavedIdeas((current) => mergeSavedIdeas(current, returnedSavedIdeas));
+        setLocalSavedIdeaTitles((current) => [
+          ...new Set([...current, ...returnedSavedIdeas.map((idea) => idea.title)]),
+        ]);
+      }
+
+      if (!nextState.savedIdeaKeys?.length) {
+        setSelectedKeys([]);
         return;
       }
 

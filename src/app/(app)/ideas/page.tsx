@@ -39,7 +39,9 @@ export default async function IdeasPage() {
       .maybeSingle(),
     supabase
       .from("content_ideas")
-      .select("id, title, hook, format, difficulty, goal, status, priority")
+      .select(
+        "id, title, hook, niche, sub_niche, format, shot_list, caption_angle, difficulty, goal, status, priority, created_at",
+      )
       .eq("user_id", user!.id)
       .order("created_at", { ascending: false }),
   ]);
