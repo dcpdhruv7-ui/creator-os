@@ -72,6 +72,29 @@ function mergeSavedIdeas(currentIdeas: SavedIdea[], incomingIdeas: SavedIdea[]) 
   return nextIdeas;
 }
 
+function savedIdeaMatchesProfile(idea: SavedIdea, profile: IdeaProfile) {
+  return idea.niche === profile.niche && idea.sub_niche === profile.subNiche;
+}
+
+function ideaGroupLabel(idea: SavedIdea) {
+  return `${idea.niche ?? "Unknown niche"} / ${idea.sub_niche ?? "General"}`;
+}
+
+function groupSavedIdeas(ideas: SavedIdea[]) {
+  return ideas.reduce<Array<{ label: string; ideas: SavedIdea[] }>>((groups, idea) => {
+    const label = ideaGroupLabel(idea);
+    const existingGroup = groups.find((group) => group.label === label);
+
+    if (existingGroup) {
+      existingGroup.ideas.push(idea);
+      return groups;
+    }
+
+    groups.push({ label, ideas: [idea] });
+    return groups;
+  }, []);
+}
+
 function withClientIds(ideas: GeneratedIdea[], batchId: number): ClientGeneratedIdea[] {
   return ideas.map((idea, index) => ({
     ...idea,
@@ -128,7 +151,17 @@ export function IdeaEngine({ profile, savedIdeas }: IdeaEngineProps) {
   const [localSavedIdeaTitles, setLocalSavedIdeaTitles] = useState(
     savedIdeas.map((idea) => idea.title),
   );
+  const [showAllSavedIdeas, setShowAllSavedIdeas] = useState(false);
   const reconciledSelectedIds = reconcileSelectedIdeas(generatedIdeas, selectedIds);
+  const currentNicheSavedIdeas = localSavedIdeas.filter((idea) =>
+    savedIdeaMatchesProfile(idea, profile),
+  );
+  const visibleSavedIdeas = showAllSavedIdeas ? localSavedIdeas : currentNicheSavedIdeas;
+  const visibleSavedIdeaIds = new Set(visibleSavedIdeas.map((idea) => idea.id));
+  const groupedSavedIdeas = showAllSavedIdeas ? groupSavedIdeas(visibleSavedIdeas) : [];
+  const visibleSelectedSavedIdeaIds = selectedSavedIdeaIds.filter((id) =>
+    visibleSavedIdeaIds.has(id),
+  );
 
   function generateIdeas() {
     if (isSaving || isGenerating) {
@@ -176,7 +209,12 @@ export function IdeaEngine({ profile, savedIdeas }: IdeaEngineProps) {
 
   function toggleAllSavedIdeas() {
     setSelectedSavedIdeaIds((current) =>
-      current.length === localSavedIdeas.length ? [] : localSavedIdeas.map((idea) => idea.id),
+      current.filter((id) => visibleSavedIdeaIds.has(id)).length === visibleSavedIdeas.length
+        ? current.filter((id) => !visibleSavedIdeaIds.has(id))
+        : [
+            ...current.filter((id) => !visibleSavedIdeaIds.has(id)),
+            ...visibleSavedIdeas.map((idea) => idea.id),
+          ],
     );
   }
 
@@ -265,14 +303,14 @@ export function IdeaEngine({ profile, savedIdeas }: IdeaEngineProps) {
   async function deleteSelectedSavedIdeas(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (selectedSavedIdeaIds.length === 0 || isDeletingIdeas) {
+    if (visibleSelectedSavedIdeaIds.length === 0 || isDeletingIdeas) {
       return;
     }
 
     const confirmed = window.confirm(
-      selectedSavedIdeaIds.length === 1
+      visibleSelectedSavedIdeaIds.length === 1
         ? "Delete this saved idea?"
-        : `Delete ${selectedSavedIdeaIds.length} selected saved ideas?`,
+        : `Delete ${visibleSelectedSavedIdeaIds.length} selected saved ideas?`,
     );
 
     if (!confirmed) {
@@ -303,6 +341,78 @@ export function IdeaEngine({ profile, savedIdeas }: IdeaEngineProps) {
     } finally {
       setIsDeletingIdeas(false);
     }
+  }
+
+  function renderSavedIdeaCard(idea: SavedIdea) {
+    const selected = selectedSavedIdeaIds.includes(idea.id);
+
+    return (
+      <Card
+        className={cn(selected && "border-red-300/50 bg-red-400/[0.04]")}
+        key={idea.id}
+      >
+        <CardHeader>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs text-emerald-300">{idea.format ?? "Content idea"}</p>
+              <CardTitle className="mt-2">{idea.title}</CardTitle>
+            </div>
+            <Button
+              aria-pressed={selected}
+              onClick={() => toggleSavedIdea(idea.id)}
+              size="sm"
+              type="button"
+              variant={selected ? "destructive" : "secondary"}
+            >
+              {selected ? <Check /> : null}
+              {selected ? "Selected" : "Select"}
+            </Button>
+          </div>
+          <p className="text-sm leading-6 text-zinc-400">{idea.hook}</p>
+        </CardHeader>
+        <CardContent>
+          <div className="mb-4 flex flex-wrap gap-2 text-xs text-zinc-400">
+            <span>{idea.difficulty ?? "Medium"}</span>
+            <span>/</span>
+            <span>{idea.goal ?? "Growth"}</span>
+          </div>
+          <form action={updateSavedIdea} className="grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
+            <input name="idea_id" type="hidden" value={idea.id} />
+            <label className="text-xs text-zinc-500">
+              Status
+              <select
+                className="mt-1 h-10 w-full rounded-md border border-white/10 bg-zinc-900 px-2 text-sm text-zinc-100"
+                defaultValue={idea.status ?? "Idea"}
+                name="status"
+              >
+                {statuses.map((status) => (
+                  <option key={status} value={status}>
+                    {status}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-xs text-zinc-500">
+              Priority
+              <select
+                className="mt-1 h-10 w-full rounded-md border border-white/10 bg-zinc-900 px-2 text-sm text-zinc-100"
+                defaultValue={idea.priority ?? "Medium"}
+                name="priority"
+              >
+                {priorities.map((priority) => (
+                  <option key={priority} value={priority}>
+                    {priority}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="flex items-end">
+              <UpdateIdeaButton />
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+    );
   }
 
   return (
@@ -462,38 +572,64 @@ export function IdeaEngine({ profile, savedIdeas }: IdeaEngineProps) {
       <section className="border-t border-white/10 pt-8">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h3 className="text-lg font-semibold text-white">Saved idea bank</h3>
+            <h3 className="text-lg font-semibold text-white">
+              {showAllSavedIdeas
+                ? "All saved ideas"
+                : `Saved ideas for ${profile.niche} / ${profile.subNiche}`}
+            </h3>
             <p className="mt-1 text-sm text-zinc-400">
-              {localSavedIdeas.length} saved idea{localSavedIdeas.length === 1 ? "" : "s"}
+              {visibleSavedIdeas.length} visible saved idea
+              {visibleSavedIdeas.length === 1 ? "" : "s"}
             </p>
             <p className="mt-2 text-sm text-zinc-500">
-              Select saved ideas here when you want to delete old versions.
+              Creator OS keeps ideas separated by niche so your Food ideas, Fitness ideas, and
+              Dance ideas stay organized.
             </p>
           </div>
 
-          {localSavedIdeas.length > 0 ? (
-            <form className="flex flex-wrap items-center gap-2" onSubmit={deleteSelectedSavedIdeas}>
-              {selectedSavedIdeaIds.map((id) => (
-                <input key={id} name="idea_ids" type="hidden" value={id} />
-              ))}
-              <Button onClick={toggleAllSavedIdeas} size="sm" type="button" variant="ghost">
-                {selectedSavedIdeaIds.length === localSavedIdeas.length
-                  ? "Clear selection"
-                  : "Select all saved"}
-              </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            {localSavedIdeas.length > 0 ? (
               <Button
-                disabled={selectedSavedIdeaIds.length === 0 || isDeletingIdeas}
+                onClick={() => {
+                  setShowAllSavedIdeas((current) => !current);
+                  setSelectedSavedIdeaIds([]);
+                }}
                 size="sm"
-                type="submit"
-                variant="destructive"
+                type="button"
+                variant="secondary"
               >
-                {isDeletingIdeas ? <LoaderCircle className="animate-spin" /> : <Trash2 />}
-                {isDeletingIdeas
-                  ? "Deleting..."
-                  : `Delete selected${selectedSavedIdeaIds.length ? ` (${selectedSavedIdeaIds.length})` : ""}`}
+                {showAllSavedIdeas ? "Show current niche only" : "Show all saved ideas"}
               </Button>
-            </form>
-          ) : null}
+            ) : null}
+
+            {visibleSavedIdeas.length > 0 ? (
+              <form className="flex flex-wrap items-center gap-2" onSubmit={deleteSelectedSavedIdeas}>
+                {visibleSelectedSavedIdeaIds.map((id) => (
+                  <input key={id} name="idea_ids" type="hidden" value={id} />
+                ))}
+                <Button onClick={toggleAllSavedIdeas} size="sm" type="button" variant="ghost">
+                  {visibleSelectedSavedIdeaIds.length === visibleSavedIdeas.length
+                    ? "Clear selection"
+                    : "Select visible saved"}
+                </Button>
+                <Button
+                  disabled={visibleSelectedSavedIdeaIds.length === 0 || isDeletingIdeas}
+                  size="sm"
+                  type="submit"
+                  variant="destructive"
+                >
+                  {isDeletingIdeas ? <LoaderCircle className="animate-spin" /> : <Trash2 />}
+                  {isDeletingIdeas
+                    ? "Deleting..."
+                    : `Delete selected${
+                        visibleSelectedSavedIdeaIds.length
+                          ? ` (${visibleSelectedSavedIdeaIds.length})`
+                          : ""
+                      }`}
+                </Button>
+              </form>
+            ) : null}
+          </div>
         </div>
 
         {deleteState.message ? (
@@ -510,83 +646,34 @@ export function IdeaEngine({ profile, savedIdeas }: IdeaEngineProps) {
           </div>
         ) : null}
 
-        {localSavedIdeas.length > 0 ? (
-          <div className="mt-5 grid gap-4 lg:grid-cols-2">
-            {localSavedIdeas.map((idea) => {
-              const selected = selectedSavedIdeaIds.includes(idea.id);
-
-              return (
-              <Card
-                className={cn(selected && "border-red-300/50 bg-red-400/[0.04]")}
-                key={idea.id}
-              >
-                <CardHeader>
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="text-xs text-emerald-300">{idea.format ?? "Content idea"}</p>
-                      <CardTitle className="mt-2">{idea.title}</CardTitle>
-                    </div>
-                    <Button
-                      aria-pressed={selected}
-                      onClick={() => toggleSavedIdea(idea.id)}
-                      size="sm"
-                      type="button"
-                      variant={selected ? "destructive" : "secondary"}
-                    >
-                      {selected ? <Check /> : null}
-                      {selected ? "Selected" : "Select"}
-                    </Button>
+        {visibleSavedIdeas.length > 0 ? (
+          showAllSavedIdeas ? (
+            <div className="mt-5 space-y-8">
+              {groupedSavedIdeas.map((group) => (
+                <div key={group.label}>
+                  <div className="mb-3 flex items-center justify-between gap-3 border-b border-white/10 pb-3">
+                    <h4 className="text-sm font-semibold text-white">{group.label}</h4>
+                    <p className="text-xs text-zinc-500">
+                      {group.ideas.length} idea{group.ideas.length === 1 ? "" : "s"}
+                    </p>
                   </div>
-                  <p className="text-sm leading-6 text-zinc-400">{idea.hook}</p>
-                </CardHeader>
-                <CardContent>
-                  <div className="mb-4 flex flex-wrap gap-2 text-xs text-zinc-400">
-                    <span>{idea.difficulty ?? "Medium"}</span>
-                    <span>/</span>
-                    <span>{idea.goal ?? "Growth"}</span>
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    {group.ideas.map((idea) => renderSavedIdeaCard(idea))}
                   </div>
-                  <form action={updateSavedIdea} className="grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
-                    <input name="idea_id" type="hidden" value={idea.id} />
-                    <label className="text-xs text-zinc-500">
-                      Status
-                      <select
-                        className="mt-1 h-10 w-full rounded-md border border-white/10 bg-zinc-900 px-2 text-sm text-zinc-100"
-                        defaultValue={idea.status ?? "Idea"}
-                        name="status"
-                      >
-                        {statuses.map((status) => (
-                          <option key={status} value={status}>
-                            {status}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="text-xs text-zinc-500">
-                      Priority
-                      <select
-                        className="mt-1 h-10 w-full rounded-md border border-white/10 bg-zinc-900 px-2 text-sm text-zinc-100"
-                        defaultValue={idea.priority ?? "Medium"}
-                        name="priority"
-                      >
-                        {priorities.map((priority) => (
-                          <option key={priority} value={priority}>
-                            {priority}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <div className="flex items-end">
-                      <UpdateIdeaButton />
-                    </div>
-                  </form>
-                </CardContent>
-              </Card>
-              );
-            })}
-          </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-5 grid gap-4 lg:grid-cols-2">
+              {visibleSavedIdeas.map((idea) => renderSavedIdeaCard(idea))}
+            </div>
+          )
         ) : (
           <div className="mt-5 rounded-lg border border-white/10 bg-white/[0.025] p-6 text-sm text-zinc-500">
-            Saved ideas will appear here.
+            <p className="font-medium text-zinc-300">No saved ideas for this niche yet.</p>
+            <p className="mt-2">
+              Generate and save ideas for this niche to build your idea bank.
+            </p>
           </div>
         )}
       </section>

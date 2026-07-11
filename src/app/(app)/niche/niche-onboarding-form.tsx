@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useFormStatus } from "react-dom";
 import { Check, Info, LoaderCircle, Save, Search } from "lucide-react";
 
@@ -55,6 +56,7 @@ export function NicheOnboardingForm({
   initialSubNicheId,
   initialCreatorGoal,
 }: NicheOnboardingFormProps) {
+  const router = useRouter();
   const [selectedNicheId, setSelectedNicheId] = useState(initialNicheId);
   const [selectedSubNicheId, setSelectedSubNicheId] = useState(initialSubNicheId);
   const [subNicheQuery, setSubNicheQuery] = useState("");
@@ -70,6 +72,12 @@ export function NicheOnboardingForm({
   const selectedNiche = niches.find((niche) => niche.id === selectedNicheId);
   const selectedSubNiche = subNiches.find((subNiche) => subNiche.id === selectedSubNicheId);
   const isTrendingDirection = selectedSubNiche?.name.toLowerCase().includes("trending");
+
+  useEffect(() => {
+    if (state.status === "success") {
+      router.push("/creators");
+    }
+  }, [router, state.status]);
 
   return (
     <form action={formAction} className="space-y-8">

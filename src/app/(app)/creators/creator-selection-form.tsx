@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useFormStatus } from "react-dom";
 import { Check, LoaderCircle, Save, Sparkles } from "lucide-react";
 
@@ -42,6 +43,7 @@ export function CreatorSelectionForm({
   initialSelectedIds,
   savedProfile,
 }: CreatorSelectionFormProps) {
+  const router = useRouter();
   const validInitialIds = initialSelectedIds.filter((id) =>
     creators.some((creator) => creator.id === id),
   );
@@ -51,6 +53,12 @@ export function CreatorSelectionForm({
   const selectedCreators = creators.filter((creator) => selectedIds.includes(creator.id));
   const preview =
     selectedCreators.length > 0 ? buildCreatorProfile(niche, selectedCreators) : savedProfile;
+
+  useEffect(() => {
+    if (state.status === "success") {
+      router.push("/ideas");
+    }
+  }, [router, state.status]);
 
   function toggleCreator(creatorId: string) {
     if (selectedIds.includes(creatorId)) {

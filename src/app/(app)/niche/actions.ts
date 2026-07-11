@@ -79,7 +79,7 @@ export async function saveNiche(
 
   const { data: creatorProfile, error: creatorProfileReadError } = await supabase
     .from("user_creator_profiles")
-    .select("id")
+    .select("id, niche, sub_niche")
     .eq("user_id", user.id)
     .order("updated_at", { ascending: false })
     .limit(1)
@@ -99,11 +99,25 @@ export async function saveNiche(
     sub_niche: subNiche.name,
     personal_brand_direction: creatorGoal || null,
   };
+  const nicheChanged =
+    creatorProfile?.niche !== niche.name || creatorProfile?.sub_niche !== subNiche.name;
+  const resetCreatorProfileValues = nicheChanged
+    ? {
+        selected_creators: [],
+        energy_style: null,
+        content_tone: null,
+        editing_style: null,
+        caption_style: null,
+        best_formats: [],
+        posting_frequency: null,
+        growth_angle: null,
+      }
+    : {};
 
   const creatorProfileResult = creatorProfile
     ? await supabase
         .from("user_creator_profiles")
-        .update(creatorProfileValues)
+        .update({ ...creatorProfileValues, ...resetCreatorProfileValues })
         .eq("id", creatorProfile.id)
         .eq("user_id", user.id)
     : await supabase.from("user_creator_profiles").insert({
@@ -123,6 +137,8 @@ export async function saveNiche(
   }
 
   revalidatePath("/niche");
+  revalidatePath("/creators");
+  revalidatePath("/ideas");
   revalidatePath("/dashboard");
 
   return {
