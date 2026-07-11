@@ -159,6 +159,23 @@ function captionLabel(caption: CalendarCaption | undefined) {
   return `${caption.caption_type ?? "Caption"}: ${caption.hook ?? caption.body ?? "Saved caption"}`;
 }
 
+function platformShortLabel(platform: string | null) {
+  switch (platform) {
+    case "Instagram":
+      return "IG";
+    case "YouTube Shorts":
+      return "YT";
+    case "TikTok":
+      return "TT";
+    case "LinkedIn":
+      return "LI";
+    case "Other":
+      return "Other";
+    default:
+      return "Post";
+  }
+}
+
 export function CalendarWorkspace({
   ideas,
   captions,
@@ -396,7 +413,7 @@ export function CalendarWorkspace({
     return (
       <span
         className={cn(
-          "inline-flex max-w-full items-center rounded-full border px-2 py-0.5 text-[11px] font-medium",
+          "inline-flex min-w-0 max-w-full items-center truncate rounded-full border px-2 py-0.5 text-[11px] font-medium leading-4",
           tone === "emerald"
             ? "border-emerald-300/20 bg-emerald-400/10 text-emerald-200"
             : "border-white/10 bg-white/[0.04] text-zinc-300",
@@ -741,19 +758,23 @@ export function CalendarWorkspace({
                             onClick={() => setSelectedEntryId(entry.id)}
                             type="button"
                           >
-                            <div className="flex items-center gap-1.5 text-xs text-zinc-400">
+                            <div className="flex min-w-0 items-center gap-1.5 text-xs text-zinc-400">
                               <Clock className="size-3 shrink-0" />
-                              <span>{timeLabel(entry.scheduled_time)}</span>
+                              <span className="truncate">{timeLabel(entry.scheduled_time)}</span>
                             </div>
                             <p className="mt-2 overflow-hidden text-sm font-medium leading-5 text-white [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
                               {entry.title}
                             </p>
-                            <div className="mt-3 flex flex-wrap gap-1.5">
-                              {renderBadge(entry.platform ?? "Platform", "emerald")}
+                            <div className="mt-3 flex min-w-0 flex-wrap gap-1.5">
+                              {renderBadge(platformShortLabel(entry.platform), "emerald")}
                               {renderBadge(entry.status ?? "Planned")}
                             </div>
-                            <div className="mt-2 text-xs text-zinc-500">
-                              {caption ? "Caption attached" : "No caption"}
+                            <div
+                              className="mt-2 flex min-w-0 items-center gap-1 text-xs text-zinc-500"
+                              title={caption ? "Caption attached" : "No caption attached"}
+                            >
+                              {caption ? <Check className="size-3 shrink-0 text-emerald-300" /> : null}
+                              <span className="truncate">{caption ? "Caption" : "No cap"}</span>
                             </div>
                           </button>
                         );

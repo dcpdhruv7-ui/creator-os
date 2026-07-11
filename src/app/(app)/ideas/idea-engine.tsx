@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import Link from "next/link";
 import { useFormStatus } from "react-dom";
 import { Check, Layers3, LoaderCircle, RefreshCw, Save, Trash2 } from "lucide-react";
 
@@ -551,7 +552,21 @@ export function IdeaEngine({ profile, savedIdeas }: IdeaEngineProps) {
                 )}
                 role={state.status === "error" ? "alert" : "status"}
               >
-                {state.message}
+                {state.status === "success" ? (
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="font-medium">Ideas saved. Ready to write captions?</p>
+                      <p className="mt-1 text-emerald-100/75">
+                        Ideas saved to your idea bank.
+                      </p>
+                    </div>
+                    <Button asChild size="sm" type="button">
+                      <Link href="/captions">Go to Captions</Link>
+                    </Button>
+                  </div>
+                ) : (
+                  state.message
+                )}
               </div>
             ) : null}
 

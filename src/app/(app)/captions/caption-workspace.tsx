@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useMemo, useState } from "react";
+import Link from "next/link";
 import { useFormStatus } from "react-dom";
 import {
   Check,
@@ -178,12 +179,70 @@ function groupSavedCaptionsByIdea(captions: SavedCaption[]) {
   return [...groups.entries()].map(([title, captions]) => ({ title, captions }));
 }
 
+function ideaMatchesProfile(idea: CaptionIdea, profile: CaptionProfile) {
+  return idea.niche === profile.niche && idea.sub_niche === profile.subNiche;
+}
+
+function ideaGroupLabel(idea: CaptionIdea) {
+  return `${idea.niche ?? "Unknown niche"} / ${idea.sub_niche ?? "General"}`;
+}
+
+function groupIdeasByNiche(ideas: CaptionIdea[]) {
+  return ideas.reduce<Array<{ label: string; ideas: CaptionIdea[] }>>((groups, idea) => {
+    const label = ideaGroupLabel(idea);
+    const existingGroup = groups.find((group) => group.label === label);
+
+    if (existingGroup) {
+      existingGroup.ideas.push(idea);
+      return groups;
+    }
+
+    groups.push({ label, ideas: [idea] });
+    return groups;
+  }, []);
+}
+
+function SavedIdeaButton({
+  idea,
+  onSelect,
+  selected,
+}: {
+  idea: CaptionIdea;
+  onSelect: () => void;
+  selected: boolean;
+}) {
+  return (
+    <button
+      className={cn(
+        "w-full rounded-lg border p-4 text-left transition-colors",
+        selected
+          ? "border-emerald-300/60 bg-emerald-400/[0.07]"
+          : "border-white/10 bg-zinc-950/72 hover:border-white/25",
+      )}
+      onClick={onSelect}
+      type="button"
+    >
+      <p className="text-xs text-emerald-300">{idea.format ?? "Saved idea"}</p>
+      <h4 className="mt-2 text-sm font-semibold leading-5 text-white">{idea.title}</h4>
+      <p className="mt-2 line-clamp-3 text-xs leading-5 text-zinc-500">
+        {idea.hook ?? "Generate captions from this idea."}
+      </p>
+    </button>
+  );
+}
+
 export function CaptionWorkspace({
   profile,
   ideas,
   savedCaptions,
 }: CaptionWorkspaceProps) {
-  const [selectedIdeaId, setSelectedIdeaId] = useState(ideas[0]?.id ?? "");
+  const currentNicheIdeas = ideas.filter((idea) => ideaMatchesProfile(idea, profile));
+  const [showAllSavedIdeas, setShowAllSavedIdeas] = useState(false);
+  const visibleIdeas = showAllSavedIdeas ? ideas : currentNicheIdeas;
+  const groupedIdeas = showAllSavedIdeas ? groupIdeasByNiche(visibleIdeas) : [];
+  const [selectedIdeaId, setSelectedIdeaId] = useState(
+    currentNicheIdeas[0]?.id ?? ideas[0]?.id ?? "",
+  );
   const [captionSet, setCaptionSet] = useState<CaptionSet | null>(null);
   const [creativeDirection, setCreativeDirection] =
     useState<CreativeDirection>("balanced");
@@ -197,8 +256,12 @@ export function CaptionWorkspace({
   );
 
   const selectedIdea = useMemo(
-    () => ideas.find((idea) => idea.id === selectedIdeaId) ?? ideas[0],
-    [ideas, selectedIdeaId],
+    () =>
+      visibleIdeas.find((idea) => idea.id === selectedIdeaId) ??
+      visibleIdeas[0] ??
+      ideas.find((idea) => idea.id === selectedIdeaId) ??
+      ideas[0],
+    [ideas, selectedIdeaId, visibleIdeas],
   );
   const deletedCaptionIds = useMemo(
     () =>
@@ -352,39 +415,90 @@ export function CaptionWorkspace({
             <div className="flex size-9 items-center justify-center rounded-md bg-emerald-400/10 text-emerald-200">
               <Clipboard />
             </div>
-            <div>
-              <h3 className="text-lg font-semibold text-white">Saved ideas</h3>
-              <p className="text-sm text-zinc-400">Select one idea to write from.</p>
+            <div className="min-w-0 flex-1">
+              <h3 className="text-lg font-semibold text-white">
+                {showAllSavedIdeas ? "All saved ideas" : "Saved ideas for this niche"}
+              </h3>
+              <p className="text-sm text-zinc-400">
+                Creator OS keeps ideas separated by niche so your captions stay organized.
+              </p>
             </div>
           </div>
 
-          <div className="space-y-3">
-            {ideas.map((idea) => {
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-zinc-500">
+              {showAllSavedIdeas
+                ? `${visibleIdeas.length} saved idea${visibleIdeas.length === 1 ? "" : "s"} total`
+                : `${visibleIdeas.length} saved idea${visibleIdeas.length === 1 ? "" : "s"} for ${profile.niche} / ${profile.subNiche}`}
+            </p>
+            {ideas.length > 0 ? (
+              <Button
+                onClick={() => {
+                  setShowAllSavedIdeas((current) => !current);
+                  setCaptionSet(null);
+                }}
+                size="sm"
+                type="button"
+                variant="secondary"
+              >
+                {showAllSavedIdeas ? "Show current niche only" : "Show all saved ideas"}
+              </Button>
+            ) : null}
+          </div>
+
+          {visibleIdeas.length > 0 ? (
+            showAllSavedIdeas ? (
+              <div className="space-y-6">
+                {groupedIdeas.map((group) => (
+                  <div key={group.label}>
+                    <div className="mb-3 border-b border-white/10 pb-2">
+                      <h4 className="text-sm font-semibold text-white">{group.label}</h4>
+                      <p className="mt-1 text-xs text-zinc-500">
+                        {group.ideas.length} idea{group.ideas.length === 1 ? "" : "s"}
+                      </p>
+                    </div>
+                    <div className="space-y-3">
+                      {group.ideas.map((idea) => {
+                        const selected = idea.id === selectedIdea?.id;
+
+                        return (
+                          <SavedIdeaButton
+                            idea={idea}
+                            key={idea.id}
+                            onSelect={() => selectIdea(idea.id)}
+                            selected={selected}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {visibleIdeas.map((idea) => {
               const selected = idea.id === selectedIdea?.id;
 
               return (
-                <button
-                  className={cn(
-                    "w-full rounded-lg border p-4 text-left transition-colors",
-                    selected
-                      ? "border-emerald-300/60 bg-emerald-400/[0.07]"
-                      : "border-white/10 bg-zinc-950/72 hover:border-white/25",
-                  )}
+                <SavedIdeaButton
+                  idea={idea}
                   key={idea.id}
-                  onClick={() => selectIdea(idea.id)}
-                  type="button"
-                >
-                  <p className="text-xs text-emerald-300">{idea.format ?? "Saved idea"}</p>
-                  <h4 className="mt-2 text-sm font-semibold leading-5 text-white">
-                    {idea.title}
-                  </h4>
-                  <p className="mt-2 line-clamp-3 text-xs leading-5 text-zinc-500">
-                    {idea.hook ?? "Generate captions from this idea."}
-                  </p>
-                </button>
+                  onSelect={() => selectIdea(idea.id)}
+                  selected={selected}
+                />
               );
-            })}
-          </div>
+                })}
+              </div>
+            )
+          ) : (
+            <div className="rounded-lg border border-white/10 bg-white/[0.025] p-5 text-sm text-zinc-500">
+              <p className="font-medium text-zinc-300">No saved ideas for this niche yet.</p>
+              <p className="mt-2">Save ideas for this niche first, then generate captions.</p>
+              <Button asChild className="mt-4" size="sm">
+                <Link href="/ideas">Go to Ideas</Link>
+              </Button>
+            </div>
+          )}
         </section>
 
         <section>
