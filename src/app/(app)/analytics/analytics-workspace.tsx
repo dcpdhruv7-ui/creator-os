@@ -119,6 +119,78 @@ function sumBy<T>(items: T[], getKey: (item: T) => string | null | undefined, ge
   return [...totals.entries()].sort((a, b) => b[1] - a[1]);
 }
 
+function dateKey(value: string | null) {
+  return value ? value.slice(0, 10) : "No date";
+}
+
+function compactDate(value: string) {
+  if (value === "No date") return value;
+
+  return new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function aggregateByDate(entries: AnalyticsEntryPayload[]) {
+  const totals = new Map<
+    string,
+    {
+      views: number;
+      engagements: number;
+    }
+  >();
+
+  entries.forEach((entry) => {
+    const key = dateKey(entry.posted_at);
+    const current = totals.get(key) ?? { views: 0, engagements: 0 };
+    current.views += metric(entry.views);
+    current.engagements +=
+      metric(entry.likes) + metric(entry.comments) + metric(entry.shares) + metric(entry.saves);
+    totals.set(key, current);
+  });
+
+  return [...totals.entries()]
+    .map(([date, values]) => ({
+      date,
+      views: values.views,
+      engagementRate: values.views > 0 ? (values.engagements / values.views) * 100 : 0,
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function platformStats(entries: AnalyticsEntryPayload[]) {
+  return platforms.map((platform) => {
+    const platformEntries = entries.filter((entry) => entry.platform === platform);
+    const views = platformEntries.reduce((sum, entry) => sum + metric(entry.views), 0);
+    const engagements = platformEntries.reduce(
+      (sum, entry) =>
+        sum +
+        metric(entry.likes) +
+        metric(entry.comments) +
+        metric(entry.shares) +
+        metric(entry.saves),
+      0,
+    );
+
+    return {
+      platform,
+      views,
+      engagementRate: views > 0 ? (engagements / views) * 100 : 0,
+      count: platformEntries.length,
+    };
+  });
+}
+
+function metricBreakdown(entries: AnalyticsEntryPayload[]) {
+  return [
+    ["Views", entries.reduce((sum, entry) => sum + metric(entry.views), 0)],
+    ["Likes", entries.reduce((sum, entry) => sum + metric(entry.likes), 0)],
+    ["Comments", entries.reduce((sum, entry) => sum + metric(entry.comments), 0)],
+    ["Shares", entries.reduce((sum, entry) => sum + metric(entry.shares), 0)],
+    ["Saves", entries.reduce((sum, entry) => sum + metric(entry.saves), 0)],
+    ["Reach", entries.reduce((sum, entry) => sum + metric(entry.reach), 0)],
+    ["Follows", entries.reduce((sum, entry) => sum + metric(entry.follows_gained), 0)],
+  ] satisfies Array<[string, number]>;
+}
+
 function AnalyticsStatCard({
   label,
   value,
@@ -136,6 +208,114 @@ function AnalyticsStatCard({
       <CardContent>
         <p className="text-2xl font-semibold text-white">{value}</p>
         <p className="mt-2 text-sm leading-6 text-zinc-500">{helper}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function BarChartCard({
+  title,
+  description,
+  data,
+  valueLabel,
+  empty,
+}: {
+  title: string;
+  description: string;
+  data: Array<{ label: string; value: number; helper?: string }>;
+  valueLabel: (value: number) => string;
+  empty: string;
+}) {
+  const maxValue = Math.max(...data.map((item) => item.value), 0);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+        <p className="text-sm leading-6 text-zinc-500">{description}</p>
+      </CardHeader>
+      <CardContent>
+        {data.length > 1 && maxValue > 0 ? (
+          <div className="space-y-4">
+            {data.map((item) => (
+              <div className="grid gap-2" key={item.label}>
+                <div className="flex min-w-0 items-center justify-between gap-3 text-sm">
+                  <span className="min-w-0 truncate text-zinc-400">{item.label}</span>
+                  <span className="shrink-0 font-medium text-zinc-100">
+                    {valueLabel(item.value)}
+                  </span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-white/[0.06]">
+                  <div
+                    className="h-full rounded-full bg-emerald-300"
+                    style={{ width: `${Math.max(4, (item.value / maxValue) * 100)}%` }}
+                  />
+                </div>
+                {item.helper ? <p className="text-xs text-zinc-600">{item.helper}</p> : null}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="rounded-lg border border-white/10 bg-white/[0.025] p-4 text-sm text-zinc-500">
+            {empty}
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function PlatformComparisonCard({
+  data,
+}: {
+  data: Array<{ platform: string; views: number; engagementRate: number; count: number }>;
+}) {
+  const maxViews = Math.max(...data.map((item) => item.views), 0);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Platform comparison</CardTitle>
+        <p className="text-sm leading-6 text-zinc-500">
+          Compare total views and average engagement rate by platform.
+        </p>
+      </CardHeader>
+      <CardContent>
+        {data.some((item) => item.count > 0) ? (
+          <div className="space-y-4">
+            {data.map((item) => (
+              <div className="rounded-lg border border-white/10 bg-white/[0.025] p-3" key={item.platform}>
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-white">{item.platform}</p>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      {item.count} tracked post{item.count === 1 ? "" : "s"}
+                    </p>
+                  </div>
+                  <div className="text-right text-xs text-zinc-400">
+                    <p>{formatNumber(item.views)} views</p>
+                    <p>{formatPercent(item.engagementRate)} engagement</p>
+                  </div>
+                </div>
+                <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/[0.06]">
+                  <div
+                    className="h-full rounded-full bg-emerald-300"
+                    style={{
+                      width:
+                        item.views > 0 && maxViews > 0
+                          ? `${Math.max(4, (item.views / maxViews) * 100)}%`
+                          : "0%",
+                    }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="rounded-lg border border-white/10 bg-white/[0.025] p-4 text-sm text-zinc-500">
+            Add analytics entries to compare platforms.
+          </p>
+        )}
       </CardContent>
     </Card>
   );
@@ -201,6 +381,9 @@ export function AnalyticsWorkspace({
   const topByEngagement = [...visibleEntries]
     .sort((a, b) => engagementRate(b) - engagementRate(a))
     .slice(0, 5);
+  const dateSeries = aggregateByDate(visibleEntries);
+  const platformsSeries = platformStats(visibleEntries);
+  const breakdown = metricBreakdown(visibleEntries);
   const insights = buildInsights(visibleEntries, bestPlatform?.[0], bestFormat?.[0]);
 
   function resetForm() {
@@ -537,6 +720,40 @@ export function AnalyticsWorkspace({
         </section>
       </div>
 
+      <section className="grid gap-5 border-t border-white/10 pt-8 xl:grid-cols-2">
+        <BarChartCard
+          data={dateSeries.map((item) => ({
+            label: compactDate(item.date),
+            value: item.views,
+          }))}
+          description="Manual views grouped by posted date."
+          empty="Add more analytics entries to see views over time."
+          title="Views over time"
+          valueLabel={(value) => formatNumber(value)}
+        />
+        <BarChartCard
+          data={dateSeries.map((item) => ({
+            label: compactDate(item.date),
+            value: item.engagementRate,
+          }))}
+          description="Engagement rate by posted date."
+          empty="Add more analytics entries to see engagement rate over time."
+          title="Engagement rate over time"
+          valueLabel={(value) => formatPercent(value)}
+        />
+      </section>
+
+      <section className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+        <PlatformComparisonCard data={platformsSeries} />
+        <BarChartCard
+          data={breakdown.map(([label, value]) => ({ label, value }))}
+          description="Totals from the entries in the current filter."
+          empty="Add analytics entries to see your metric breakdown."
+          title="Metrics breakdown"
+          valueLabel={(value) => formatNumber(value)}
+        />
+      </section>
+
       <section className="space-y-5 border-t border-white/10 pt-8">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
@@ -639,8 +856,20 @@ export function AnalyticsWorkspace({
       </section>
 
       <div className="grid gap-5 lg:grid-cols-2">
-        <TopContentCard entries={topByViews} title="Top 5 by views" />
-        <TopContentCard entries={topByEngagement} title="Top 5 by engagement rate" />
+        <TopContentCard
+          entries={topByViews}
+          metricLabel="views"
+          title="Top 5 by views"
+          valueForEntry={(entry) => metric(entry.views)}
+          valueLabel={(entry) => formatNumber(entry.views)}
+        />
+        <TopContentCard
+          entries={topByEngagement}
+          metricLabel="engagement"
+          title="Top 5 by engagement rate"
+          valueForEntry={(entry) => engagementRate(entry)}
+          valueLabel={(entry) => formatPercent(engagementRate(entry))}
+        />
       </div>
     </div>
   );
@@ -655,7 +884,21 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function TopContentCard({ entries, title }: { entries: AnalyticsEntryPayload[]; title: string }) {
+function TopContentCard({
+  entries,
+  metricLabel,
+  title,
+  valueForEntry,
+  valueLabel,
+}: {
+  entries: AnalyticsEntryPayload[];
+  metricLabel: string;
+  title: string;
+  valueForEntry: (entry: AnalyticsEntryPayload) => number;
+  valueLabel: (entry: AnalyticsEntryPayload) => string;
+}) {
+  const maxValue = Math.max(...entries.map(valueForEntry), 0);
+
   return (
     <Card>
       <CardHeader>
@@ -669,13 +912,30 @@ function TopContentCard({ entries, title }: { entries: AnalyticsEntryPayload[]; 
           <div className="space-y-3">
             {entries.map((entry, index) => (
               <div className="rounded-lg border border-white/10 bg-white/[0.025] p-3" key={entry.id}>
-                <p className="text-xs text-emerald-300">#{index + 1}</p>
-                <p className="mt-1 text-sm font-medium text-white">
-                  {entry.post_title ?? "Manual analytics entry"}
-                </p>
-                <p className="mt-1 text-xs text-zinc-500">
-                  {formatNumber(entry.views)} views / {formatPercent(engagementRate(entry))} engagement
-                </p>
+                <div className="flex items-start gap-3">
+                  <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-emerald-400/10 text-xs font-semibold text-emerald-200">
+                    {index + 1}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-white">
+                      {entry.post_title ?? "Manual analytics entry"}
+                    </p>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      {valueLabel(entry)} {metricLabel} / {formatNumber(entry.views)} views
+                    </p>
+                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/[0.06]">
+                      <div
+                        className="h-full rounded-full bg-emerald-300"
+                        style={{
+                          width:
+                            maxValue > 0
+                              ? `${Math.max(4, (valueForEntry(entry) / maxValue) * 100)}%`
+                              : "0%",
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
             ))}
           </div>
@@ -693,6 +953,16 @@ function buildInsights(entries: AnalyticsEntryPayload[], bestPlatform?: string, 
   }
 
   const insights = [];
+  const highestViewPost = [...entries].sort((a, b) => metric(b.views) - metric(a.views))[0];
+  const bestEngagementPost = [...entries].sort((a, b) => engagementRate(b) - engagementRate(a))[0];
+
+  if (highestViewPost?.post_title && metric(highestViewPost.views) > 0) {
+    insights.push(`Your highest-view post is ${highestViewPost.post_title}.`);
+  }
+
+  if (bestEngagementPost?.post_title && engagementRate(bestEngagementPost) > 0) {
+    insights.push(`Your best engagement rate came from ${bestEngagementPost.post_title}.`);
+  }
 
   if (bestPlatform && bestPlatform !== "Unknown") {
     insights.push(`Your ${bestPlatform} posts are getting the most views.`);
