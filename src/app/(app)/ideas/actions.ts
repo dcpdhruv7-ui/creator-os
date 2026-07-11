@@ -104,7 +104,7 @@ export async function saveGeneratedIdeas(
     return { status: "error", message: result.message };
   }
 
-  const ideas = generateAdaptiveIdeas(result.profile, { count: 100 }).filter((idea) =>
+  const ideas = generateAdaptiveIdeas(result.profile, { count: 250 }).filter((idea) =>
     selectedKeys.includes(idea.key),
   );
 

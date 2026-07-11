@@ -33,7 +33,8 @@ export type CreativeDirection =
   | "educational"
   | "hinglish"
   | "premium"
-  | "bold";
+  | "bold"
+  | "experimental";
 
 export type RemixMode =
   | "all"
@@ -133,6 +134,7 @@ const directionLabels: Record<CreativeDirection, string> = {
   hinglish: "more Hinglish",
   premium: "more premium",
   bold: "more bold and direct",
+  experimental: "more experimental",
 };
 
 const nicheAdapters: Record<string, NicheCaptionAdapter> = {
@@ -783,6 +785,18 @@ function directionHookPools(
       "Contrarian hook": ["More effort will not fix a messy process.", "Perfect results can teach nothing."],
       "Save-worthy hook": ["Save this and try it once.", "Keep this before you make the next version."],
     },
+    experimental: {
+      "Curiosity hook": ["What if the messy part became the whole post?", "Try watching this without the final result first."],
+      "Problem hook": ["The obvious version is not always the most interesting one.", "This gets boring when the result is the only angle."],
+      "Result hook": ["Same idea. Stranger structure. Better attention.", "The result hits harder when the path is unexpected."],
+      "Mistake hook": ["Turn the mistake into the opening scene.", "Let the failed attempt become the hook."],
+      "BTS/process hook": ["Show the setup like it is the main character.", "Make the process feel like the reveal."],
+      "Direct statement hook": ["Break the usual format.", "Make people choose what happens next."],
+      "Emotional hook": ["The weird version may be the honest one.", "The imperfect take has more personality."],
+      "Tutorial hook": ["Teach it backwards once.", "Turn this into a mini experiment people can repeat."],
+      "Contrarian hook": ["Do not start with the cleanest clip.", "The safest edit may be the least memorable."],
+      "Save-worthy hook": ["Save this as a format test.", "Try this structure before your next post."],
+    },
   };
 }
 
@@ -878,6 +892,11 @@ function buildCtas(context: CaptionContext): GeneratedCta[] {
       "Tag a friend who would try this with you.",
       "Tell me what stage you are stuck at.",
     ],
+    Experimental: [
+      "Comment TEST if I should turn this into a series.",
+      "Which version should I try next: clean, weird, or detailed?",
+      "Save this as a format experiment for your next post.",
+    ],
     Conversion: [
       "DM me if you want this turned into a content plan.",
       "Follow if you want more creator strategy breakdowns.",
@@ -895,7 +914,9 @@ function buildCtas(context: CaptionContext): GeneratedCta[] {
             ? "Trust"
             : goalText.includes("education") || goalText.includes("authority")
               ? "Education"
-              : goalText.includes("community")
+              : goalText.includes("experimental")
+                ? "Experimental"
+                : goalText.includes("community")
                 ? "Community"
                 : goalText.includes("conversion")
                   ? "Conversion"
@@ -939,6 +960,7 @@ function buildHashtagSets(context: CaptionContext): GeneratedHashtagSet[] {
     hinglish: ["#reelsindia", "#indiancreator"],
     premium: ["#personalbrand", "#premiumcontent"],
     bold: ["#directadvice", "#creatortruth"],
+    experimental: ["#formattest", "#creativeexperiment"],
   };
   const specific = hashtag(subNiche);
   const formatTag = hashtag(format);
@@ -1034,6 +1056,15 @@ function captionBody(context: CaptionContext, type: string, hook: string) {
       Simple: `Do not hide the useful part.\n\nShow the proof. Name the fix. Give one action.`,
       "Bold / direct": `Stop making the result do all the work.\n\nThe process is the proof.`,
       "Contrarian hook": `More effort will not fix an unclear process.`,
+    },
+    experimental: {
+      Simple: `Try the unusual version first.\n\nOpen with the messy attempt. Hold the result back. Let people guess what changed.`,
+      "Viral / punchy": `Do not show the clean take yet.\n\nShow the weird attempt.\nShow the choice.\nThen reveal the result.`,
+      Educational: `Format test:\n1. Start in the middle.\n2. Show the rule or constraint.\n3. Let the result answer the question.\n\nThis makes the lesson feel less predictable.`,
+      Storytelling: `The normal version would start with the result.\n\nThis one starts with the moment that almost ruined it.`,
+      "Community / engagement": `I want to test this as a series.\n\nShould the next version be cleaner, stranger, or more detailed?`,
+      "BTS / process": `Make the setup part of the story.\n\nThe process is not extra footage. It is the reason the result feels different.`,
+      "Save-worthy": `Save this format test:\n- Start with the imperfect clip.\n- Add one constraint.\n- Reveal the result late.\n- Ask viewers what to test next.`,
     },
   };
   const directionBody = directionBodies[effectiveDirection]?.[type];
@@ -1240,6 +1271,7 @@ export const creativeDirectionOptions: Array<{
   { value: "hinglish", label: "More Hinglish" },
   { value: "premium", label: "More premium/professional" },
   { value: "bold", label: "More bold/direct" },
+  { value: "experimental", label: "More experimental" },
 ];
 
 export function describeCreativeDirection(direction: CreativeDirection) {

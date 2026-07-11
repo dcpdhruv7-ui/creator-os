@@ -75,6 +75,7 @@ const remixButtons: Array<{
   { label: "More direct", remix: "direct", direction: "bold" },
   { label: "Hinglish", remix: "hinglish", direction: "hinglish" },
   { label: "More educational", remix: "educational", direction: "educational" },
+  { label: "More experimental", remix: "all", direction: "experimental" },
 ];
 
 function CopyButton({ value, label = "Copy" }: { value: string; label?: string }) {

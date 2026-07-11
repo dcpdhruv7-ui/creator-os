@@ -13,6 +13,7 @@ export type GeneratedIdea = {
   key: string;
   title: string;
   hook: string;
+  creative_angle: string;
   niche: string;
   sub_niche: string;
   format: string;
@@ -27,6 +28,7 @@ export type GeneratedIdea = {
 export type GenerateAdaptiveIdeasOptions = {
   count?: number;
   excludeTitles?: string[];
+  excludeKeys?: string[];
   offset?: number;
 };
 
@@ -79,6 +81,40 @@ type UniversalIdeaPattern = {
   hook: (context: PatternContext) => string;
   shotList: (context: PatternContext) => string;
   captionAngle: (context: PatternContext) => string;
+};
+
+type CreativeAngleId =
+  | "educational"
+  | "experimental"
+  | "behind-the-scenes"
+  | "mistake-fix"
+  | "contrarian"
+  | "challenge"
+  | "storytelling"
+  | "transformation"
+  | "comparison"
+  | "series"
+  | "community"
+  | "trend-adaptation"
+  | "repurpose"
+  | "beginner-friendly"
+  | "advanced-breakdown"
+  | "personal-journey"
+  | "myth-busting"
+  | "reaction"
+  | "mini-case-study";
+
+type CreativeAngle = {
+  id: CreativeAngleId;
+  label: string;
+  family:
+    | "educational"
+    | "process"
+    | "experimental"
+    | "mistake"
+    | "story"
+    | "engagement"
+    | "repurpose";
 };
 
 function titleCase(value: string) {
@@ -534,28 +570,6 @@ const corePatternIds: PatternId[] = [
   "repurpose",
 ];
 
-const ideaVariantLabels = [
-  "Fresh Angle",
-  "Process Angle",
-  "Save-Worthy Angle",
-  "Trust Builder",
-  "Fast Reel Angle",
-  "Community Angle",
-  "Authority Angle",
-  "Story Angle",
-];
-
-const ideaVariantHooks = [
-  "Use this as a fresh version with a different opening moment.",
-  "Frame this around the process instead of only the result.",
-  "Make this version more save-worthy by focusing on the repeatable detail.",
-  "Turn this into a trust-building post by showing what changed.",
-  "Keep this version tighter and lead with the strongest visual.",
-  "Invite people into the idea by asking what they would try next.",
-  "Use this version to explain the decision behind the result.",
-  "Make the journey or turning point the main reason to watch.",
-];
-
 function ideaTitleKey(value: string) {
   return value.trim().toLowerCase();
 }
@@ -566,20 +580,253 @@ function rotateIdeas<T>(values: T[], amount: number) {
   return [...values.slice(offset), ...values.slice(0, offset)];
 }
 
-function applyIdeaVariant(idea: GeneratedIdea, round: number): GeneratedIdea {
-  if (round === 0) {
-    return idea;
+const creativeAngles: CreativeAngle[] = [
+  { id: "educational", label: "Educational", family: "educational" },
+  { id: "experimental", label: "Experimental", family: "experimental" },
+  { id: "behind-the-scenes", label: "BTS", family: "process" },
+  { id: "mistake-fix", label: "Mistake Fix", family: "mistake" },
+  { id: "contrarian", label: "Contrarian", family: "experimental" },
+  { id: "challenge", label: "Challenge", family: "engagement" },
+  { id: "storytelling", label: "Story", family: "story" },
+  { id: "transformation", label: "Transformation", family: "story" },
+  { id: "comparison", label: "Comparison", family: "educational" },
+  { id: "series", label: "Series Idea", family: "repurpose" },
+  { id: "community", label: "Community Prompt", family: "engagement" },
+  { id: "trend-adaptation", label: "Trend Adaptation", family: "experimental" },
+  { id: "repurpose", label: "Repurpose", family: "repurpose" },
+  { id: "beginner-friendly", label: "Beginner-Friendly", family: "educational" },
+  { id: "advanced-breakdown", label: "Advanced Breakdown", family: "educational" },
+  { id: "personal-journey", label: "Personal Journey", family: "story" },
+  { id: "myth-busting", label: "Myth-Busting", family: "mistake" },
+  { id: "reaction", label: "Reaction", family: "engagement" },
+  { id: "mini-case-study", label: "Mini Case Study", family: "educational" },
+];
+
+const diversityMix: CreativeAngle["family"][] = [
+  "educational",
+  "process",
+  "experimental",
+  "mistake",
+  "story",
+  "engagement",
+  "repurpose",
+  "educational",
+  "process",
+  "experimental",
+];
+
+const anglePatternPreference: Record<CreativeAngleId, PatternId[]> = {
+  educational: ["tutorial", "breakdown", "quick-tip"],
+  experimental: ["challenge", "comparison", "final-output"],
+  "behind-the-scenes": ["behind-the-scenes", "story"],
+  "mistake-fix": ["mistake-fix", "before-after"],
+  contrarian: ["comparison", "reaction", "breakdown"],
+  challenge: ["challenge", "quick-tip"],
+  storytelling: ["story", "behind-the-scenes"],
+  transformation: ["before-after", "story"],
+  comparison: ["comparison", "breakdown"],
+  series: ["repurpose", "breakdown"],
+  community: ["challenge", "reaction"],
+  "trend-adaptation": ["challenge", "reaction"],
+  repurpose: ["repurpose", "tutorial"],
+  "beginner-friendly": ["tutorial", "quick-tip"],
+  "advanced-breakdown": ["breakdown", "comparison"],
+  "personal-journey": ["story", "before-after"],
+  "myth-busting": ["mistake-fix", "comparison"],
+  reaction: ["reaction", "comparison"],
+  "mini-case-study": ["breakdown", "before-after"],
+};
+
+const angleFormatLabels: Record<CreativeAngleId, string> = {
+  educational: "Teaching Angle",
+  experimental: "Creative Test",
+  "behind-the-scenes": "BTS Angle",
+  "mistake-fix": "Mistake Fix",
+  contrarian: "Contrarian Take",
+  challenge: "Challenge",
+  storytelling: "Story Angle",
+  transformation: "Transformation",
+  comparison: "Comparison",
+  series: "Series Starter",
+  community: "Community Prompt",
+  "trend-adaptation": "Trend Adaptation",
+  repurpose: "Repurpose Plan",
+  "beginner-friendly": "Beginner Guide",
+  "advanced-breakdown": "Advanced Breakdown",
+  "personal-journey": "Personal Journey",
+  "myth-busting": "Myth-Busting",
+  reaction: "Reaction",
+  "mini-case-study": "Mini Case Study",
+};
+
+const nicheExperimentIdeas: Record<string, Partial<Record<CreativeAngleId, string[]>>> = {
+  Dance: {
+    experimental: [
+      "Same step, three emotions",
+      "No music first, music after",
+      "Expression-only performance",
+      "One move, three camera angles",
+    ],
+    "behind-the-scenes": ["First take vs final take", "Missed timing to clean performance"],
+    educational: ["Teach the hook step using hand counts", "Break one transition into three counts"],
+    community: ["Audience chooses the next song", "Pick the emotion for the next performance"],
+    repurpose: ["Turn one choreography into performance, tutorial, BTS, and mistake fix"],
+  },
+  Fitness: {
+    experimental: [
+      "Silent workout edit with text-only coaching",
+      "One exercise, three camera angles",
+    ],
+    "mistake-fix": ["One exercise, three mistakes", "Form check using slow motion"],
+    comparison: ["Beginner vs advanced variation", "Fast reps vs controlled reps"],
+    repurpose: ["One workout, four posts"],
+    storytelling: ["What changed after one bad set"],
+  },
+  Food: {
+    comparison: ["Same meal: budget vs premium", "Ingredient swap test"],
+    educational: ["High-protein plate build from scratch", "Meal prep in 20 minutes"],
+    repurpose: ["One recipe, three content pieces"],
+  },
+  Gaming: {
+    repurpose: ["One match, five clips"],
+    "mistake-fix": ["Mistake that lost the round"],
+    educational: ["Clutch breakdown", "Beginner vs experienced decision"],
+    storytelling: ["Funny fail into lesson"],
+  },
+  Cinematography: {
+    experimental: ["One shot, three lighting moods", "Phone camera cinematic test"],
+    comparison: ["Raw shot vs color grade"],
+    educational: ["Camera movement breakdown"],
+    "behind-the-scenes": ["BTS setup to final cinematic"],
+  },
+  "AI & Technology": {
+    educational: ["One tool, three use cases", "Build a mini workflow in 30 seconds"],
+    comparison: ["Manual workflow vs AI workflow", "Tool comparison"],
+    "mistake-fix": ["Prompt mistake vs improved prompt"],
+  },
+};
+
+function words(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((word) => word.length > 3);
+}
+
+function wordOverlap(a: string, b: string) {
+  const wordsA = new Set(words(a));
+  const wordsB = new Set(words(b));
+
+  if (wordsA.size === 0 || wordsB.size === 0) {
+    return 0;
   }
 
-  const label = ideaVariantLabels[(round - 1) % ideaVariantLabels.length];
-  const hookDetail = ideaVariantHooks[(round - 1) % ideaVariantHooks.length];
+  const overlap = [...wordsA].filter((word) => wordsB.has(word)).length;
+  return overlap / Math.min(wordsA.size, wordsB.size);
+}
+
+function titleOpening(value: string) {
+  return words(value).slice(0, 3).join(" ");
+}
+
+function angleTopic(profile: IdeaProfile, adapter: NicheAdapter, angle: CreativeAngle) {
+  const examples = nicheExperimentIdeas[profile.niche]?.[angle.id];
+
+  if (examples?.length) {
+    return examples[0];
+  }
+
+  const topics: Record<CreativeAngleId, string> = {
+    educational: `teach one repeatable ${adapter.teachUnit}`,
+    experimental: `test a new ${profile.subNiche} constraint`,
+    "behind-the-scenes": `show the messy middle of the ${adapter.effort}`,
+    "mistake-fix": `fix ${adapter.mistake}`,
+    contrarian: `challenge a common ${profile.subNiche} assumption`,
+    challenge: `try ${adapter.constraint}`,
+    storytelling: `turn ${adapter.storyArc} into a story`,
+    transformation: `show ${adapter.beforeAfter}`,
+    comparison: `compare ${adapter.comparison}`,
+    series: `start a repeatable ${profile.subNiche} series`,
+    community: `let the audience choose the next version`,
+    "trend-adaptation": `adapt a familiar trend to ${profile.subNiche}`,
+    repurpose: `turn one ${adapter.effort} into multiple posts`,
+    "beginner-friendly": `make ${adapter.teachUnit} beginner-friendly`,
+    "advanced-breakdown": `break down ${adapter.breakdownTarget} in detail`,
+    "personal-journey": `share the turning point in ${adapter.storyArc}`,
+    "myth-busting": `bust the myth behind ${adapter.mistake}`,
+    reaction: `react to ${adapter.reactionTarget}`,
+    "mini-case-study": `show what changed during one ${adapter.effort}`,
+  };
+
+  return topics[angle.id];
+}
+
+function applyCreativeAngle(
+  idea: GeneratedIdea,
+  context: PatternContext,
+  pattern: UniversalIdeaPattern,
+  angle: CreativeAngle,
+  angleIndex: number,
+): GeneratedIdea {
+  const { profile, adapter } = context;
+  const topic = angleTopic(profile, adapter, angle);
+  const titlePrefix: Record<CreativeAngle["family"], string> = {
+    educational: "Make Useful",
+    process: "Behind the Result",
+    experimental: "Test",
+    mistake: "Correction",
+    story: "Story",
+    engagement: "Audience Prompt",
+    repurpose: "Content Multiplier",
+  };
+  const angleTitle =
+    angle.id === "experimental" && nicheExperimentIdeas[profile.niche]?.experimental?.[angleIndex % (nicheExperimentIdeas[profile.niche]?.experimental?.length ?? 1)]
+      ? nicheExperimentIdeas[profile.niche]?.experimental?.[angleIndex % (nicheExperimentIdeas[profile.niche]?.experimental?.length ?? 1)]
+      : `${titlePrefix[angle.family]}: ${titleCase(topic)}`;
+  const format = `${angleFormatLabels[angle.id]} / ${formatTemplates[pattern.id](context)}`;
+  const hookByFamily: Record<CreativeAngle["family"], string> = {
+    educational: `Make this useful by turning ${topic} into a clear viewer takeaway.`,
+    process: `The hidden process behind ${topic} is more useful than the polished result.`,
+    experimental: `Use this as a creative test: ${topic}.`,
+    mistake: `The strongest angle is the correction: ${topic}.`,
+    story: `Make the turning point the reason people watch: ${topic}.`,
+    engagement: `Invite the audience into the idea: ${topic}.`,
+    repurpose: `Show how ${topic} becomes more than one post.`,
+  };
 
   return {
     ...idea,
-    key: `${idea.key}-${round}`,
-    title: `${idea.title}: ${label}`,
-    hook: `${idea.hook} ${hookDetail}`,
+    key: `${pattern.id}-${angle.id}`,
+    title: `${profile.subNiche}: ${angleTitle}`,
+    hook: hookByFamily[angle.family],
+    creative_angle: angle.label,
+    format,
+    shot_list: `${idea.shot_list} Creative angle: ${angle.label}. Add a distinct beat for ${topic}, and avoid repeating the same result-only structure.`,
+    caption_angle: `${idea.caption_angle} Frame the caption around the ${angle.label.toLowerCase()} angle so it feels like a new concept, not a rewrite of the previous idea.`,
+    goal:
+      angle.family === "engagement"
+        ? "Comments"
+        : angle.family === "repurpose"
+          ? "Consistency"
+          : angle.family === "experimental"
+            ? "Reach"
+            : idea.goal,
+    priority: angle.family === "experimental" || angle.family === "repurpose" ? "High" : idea.priority,
   };
+}
+
+function noveltyScore(idea: GeneratedIdea, referenceTitles: string[], acceptedIdeas: GeneratedIdea[]) {
+  const references = [...referenceTitles, ...acceptedIdeas.map((acceptedIdea) => acceptedIdea.title)];
+  const maxTitleOverlap = Math.max(0, ...references.map((title) => wordOverlap(idea.title, title)));
+  const maxHookOverlap = Math.max(0, ...acceptedIdeas.map((acceptedIdea) => wordOverlap(idea.hook, acceptedIdea.hook)));
+  const sameFormatPenalty = acceptedIdeas.some((acceptedIdea) => acceptedIdea.format === idea.format) ? 0.12 : 0;
+  const sameAnglePenalty = acceptedIdeas.some((acceptedIdea) => acceptedIdea.creative_angle === idea.creative_angle) ? 0.18 : 0;
+  const sameOpeningPenalty = acceptedIdeas.some((acceptedIdea) => titleOpening(acceptedIdea.title) === titleOpening(idea.title))
+    ? 0.12
+    : 0;
+
+  return 1 - maxTitleOverlap - maxHookOverlap * 0.45 - sameFormatPenalty - sameAnglePenalty - sameOpeningPenalty;
 }
 
 export function generateAdaptiveIdeas(
@@ -589,45 +836,100 @@ export function generateAdaptiveIdeas(
   const adapter = nicheAdapters[profile.niche] ?? fallbackAdapter;
   const count = options.count ?? 10;
   const excludedTitles = new Set((options.excludeTitles ?? []).map(ideaTitleKey));
+  const excludedKeys = new Set(options.excludeKeys ?? []);
   const selectedPatternIds = [...corePatternIds, ...adapter.preferredPatterns];
+  const excludedPatterns = new Set(
+    selectedPatternIds.filter((patternId) =>
+      [...excludedKeys].some((key) => key === patternId || key.startsWith(`${patternId}-`)),
+    ),
+  );
   const patternMap = new Map(universalIdeaPatterns.map((pattern) => [pattern.id, pattern]));
-  const candidates: GeneratedIdea[] = [];
+  const candidates: Array<GeneratedIdea & { family: CreativeAngle["family"] }> = [];
   const seenTitles = new Set<string>();
 
-  for (let round = 0; round <= ideaVariantLabels.length; round += 1) {
+  creativeAngles.forEach((angle, angleIndex) => {
     selectedPatternIds.forEach((patternId, index) => {
+      const preferredPatterns = anglePatternPreference[angle.id];
+
+      if (excludedPatterns.has(patternId)) {
+        return;
+      }
+
+      if (!preferredPatterns.includes(patternId) && index % 3 !== angleIndex % 3) {
+        return;
+      }
+
       const pattern = patternMap.get(patternId)!;
       const creatorReference = profile.selectedCreatorNames.length
         ? profile.selectedCreatorNames[index % profile.selectedCreatorNames.length]
         : null;
       const context = { profile, adapter, creatorReference };
-      const idea = applyIdeaVariant(
-        {
-          key: pattern.id,
-          title: pattern.title(context),
-          hook: pattern.hook(context),
-          niche: profile.niche,
-          sub_niche: profile.subNiche,
-          format: formatTemplates[pattern.id](context),
-          shot_list: pattern.shotList(context),
-          caption_angle: pattern.captionAngle(context),
-          difficulty: pattern.difficulty,
-          goal: pattern.goal,
-          priority: pattern.priority,
-          status: "Idea",
-        },
-        round,
-      );
+      const baseIdea: GeneratedIdea = {
+        key: pattern.id,
+        title: pattern.title(context),
+        hook: pattern.hook(context),
+        creative_angle: pattern.label,
+        niche: profile.niche,
+        sub_niche: profile.subNiche,
+        format: formatTemplates[pattern.id](context),
+        shot_list: pattern.shotList(context),
+        caption_angle: pattern.captionAngle(context),
+        difficulty: pattern.difficulty,
+        goal: pattern.goal,
+        priority: pattern.priority,
+        status: "Idea",
+      };
+      const idea = applyCreativeAngle(baseIdea, context, pattern, angle, angleIndex);
       const titleKey = ideaTitleKey(idea.title);
 
-      if (excludedTitles.has(titleKey) || seenTitles.has(titleKey)) {
+      if (excludedKeys.has(idea.key) || excludedTitles.has(titleKey) || seenTitles.has(titleKey)) {
         return;
       }
 
       seenTitles.add(titleKey);
-      candidates.push(idea);
+      candidates.push({ ...idea, family: angle.family });
     });
-  }
+  });
 
-  return rotateIdeas(candidates, options.offset ?? 0).slice(0, count);
+  const rotatedCandidates = rotateIdeas(candidates, options.offset ?? 0);
+  const acceptedIdeas: GeneratedIdea[] = [];
+  const referenceTitles = options.excludeTitles ?? [];
+
+  diversityMix.forEach((family) => {
+    if (acceptedIdeas.length >= count) {
+      return;
+    }
+
+    const candidate = rotatedCandidates
+      .filter((idea) => idea.family === family)
+      .filter((idea) => !acceptedIdeas.some((acceptedIdea) => acceptedIdea.key === idea.key))
+      .sort(
+        (a, b) =>
+          noveltyScore(b, referenceTitles, acceptedIdeas) -
+          noveltyScore(a, referenceTitles, acceptedIdeas),
+      )[0];
+
+    if (candidate && noveltyScore(candidate, referenceTitles, acceptedIdeas) > 0.22) {
+      acceptedIdeas.push(candidate);
+    }
+  });
+
+  rotatedCandidates
+    .filter((idea) => !acceptedIdeas.some((acceptedIdea) => acceptedIdea.key === idea.key))
+    .sort(
+      (a, b) =>
+        noveltyScore(b, referenceTitles, acceptedIdeas) -
+        noveltyScore(a, referenceTitles, acceptedIdeas),
+    )
+    .forEach((idea) => {
+      if (acceptedIdeas.length >= count) {
+        return;
+      }
+
+      if (noveltyScore(idea, referenceTitles, acceptedIdeas) > 0.18) {
+        acceptedIdeas.push(idea);
+      }
+    });
+
+  return acceptedIdeas;
 }

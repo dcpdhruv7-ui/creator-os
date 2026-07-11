@@ -146,6 +146,7 @@ export function IdeaEngine({ profile, savedIdeas }: IdeaEngineProps) {
         const replacements = generateAdaptiveIdeas(profile, {
           count: replacementCount,
           excludeTitles,
+          excludeKeys: nextState.savedIdeaKeys,
           offset: nextOffset,
         });
 
@@ -229,6 +230,9 @@ export function IdeaEngine({ profile, savedIdeas }: IdeaEngineProps) {
             <p className="mt-2 text-sm text-zinc-500">
               Saved ideas are moved to your idea bank and replaced with fresh suggestions.
             </p>
+            <p className="mt-1 text-sm text-zinc-500">
+              Creator OS replaces saved ideas with fresh angles, not just rewritten versions.
+            </p>
           </div>
           <Button onClick={generateIdeas} type="button">
             <RefreshCw />
@@ -285,6 +289,9 @@ export function IdeaEngine({ profile, savedIdeas }: IdeaEngineProps) {
                         <Check className="size-3.5" strokeWidth={3} />
                       </div>
                       <p className="text-xs text-emerald-300">{idea.format}</p>
+                      <p className="mt-2 text-xs text-zinc-500">
+                        Creative angle: {idea.creative_angle}
+                      </p>
                       <CardTitle className="text-lg">{idea.title}</CardTitle>
                       <p className="text-sm leading-6 text-zinc-300">{idea.hook}</p>
                     </CardHeader>
