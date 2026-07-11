@@ -923,6 +923,9 @@ function TopContentCard({
                     <p className="mt-1 text-xs text-zinc-500">
                       {valueLabel(entry)} {metricLabel} / {formatNumber(entry.views)} views
                     </p>
+                    <p className="mt-1 text-xs text-zinc-600">
+                      {entry.platform ?? "Platform"} / {displayDate(entry.posted_at)}
+                    </p>
                     <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/[0.06]">
                       <div
                         className="h-full rounded-full bg-emerald-300"
