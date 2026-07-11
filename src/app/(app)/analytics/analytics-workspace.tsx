@@ -49,7 +49,7 @@ type AnalyticsWorkspaceProps = {
   currentSubNiche: string | null;
 };
 
-const platforms = ["Instagram", "YouTube Shorts", "TikTok", "LinkedIn", "Other"];
+const platforms = ["Instagram", "YouTube Shorts", "TikTok", "LinkedIn", "Twitter / X", "Other"];
 const initialActionState: AnalyticsActionState = { status: "idle", message: "" };
 
 function dateInputValue(date: Date) {
@@ -88,6 +88,12 @@ function formatPercent(value: number) {
 
 function formatNumber(value: number | null | undefined) {
   return metric(value).toLocaleString();
+}
+
+function cleanMetricInput(value: string) {
+  const digits = value.replace(/\D/g, "");
+
+  return digits.replace(/^0+(?=\d)/, "");
 }
 
 function entryMatchesCurrentNiche(
@@ -156,13 +162,13 @@ export function AnalyticsWorkspace({
   const [platform, setPlatform] = useState("Instagram");
   const [postedAt, setPostedAt] = useState(today);
   const [postTitle, setPostTitle] = useState("");
-  const [views, setViews] = useState("0");
-  const [likes, setLikes] = useState("0");
-  const [comments, setComments] = useState("0");
-  const [shares, setShares] = useState("0");
-  const [saves, setSaves] = useState("0");
-  const [reach, setReach] = useState("0");
-  const [followsGained, setFollowsGained] = useState("0");
+  const [views, setViews] = useState("");
+  const [likes, setLikes] = useState("");
+  const [comments, setComments] = useState("");
+  const [shares, setShares] = useState("");
+  const [saves, setSaves] = useState("");
+  const [reach, setReach] = useState("");
+  const [followsGained, setFollowsGained] = useState("");
   const [notes, setNotes] = useState("");
   const ideaMap = useMemo(() => new Map(ideas.map((idea) => [idea.id, idea])), [ideas]);
   const calendarMap = useMemo(
@@ -204,13 +210,13 @@ export function AnalyticsWorkspace({
     setPlatform("Instagram");
     setPostedAt(today);
     setPostTitle("");
-    setViews("0");
-    setLikes("0");
-    setComments("0");
-    setShares("0");
-    setSaves("0");
-    setReach("0");
-    setFollowsGained("0");
+    setViews("");
+    setLikes("");
+    setComments("");
+    setShares("");
+    setSaves("");
+    setReach("");
+    setFollowsGained("");
     setNotes("");
   }
 
@@ -437,10 +443,16 @@ export function AnalyticsWorkspace({
                   <label className="text-xs font-medium text-zinc-500" key={name as string}>
                     {label as string}
                     <Input
-                      min={0}
+                      inputMode="numeric"
                       name={name as string}
-                      onChange={(event) => (setter as (value: string) => void)(event.target.value)}
-                      type="number"
+                      onChange={(event) =>
+                        (setter as (value: string) => void)(
+                          cleanMetricInput(event.target.value),
+                        )
+                      }
+                      pattern="[0-9]*"
+                      placeholder="0"
+                      type="text"
                       value={value as string}
                     />
                   </label>

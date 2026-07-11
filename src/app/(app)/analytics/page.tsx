@@ -14,10 +14,13 @@ const baseAnalyticsSelect =
   "id, content_idea_id, platform, post_title, niche, sub_niche, views, likes, comments, shares, saves, reach, posted_at, created_at";
 
 function isMissingColumnError(error: { code?: string; message?: string } | null) {
+  const message = error?.message?.toLowerCase() ?? "";
+
   return (
     error?.code === "42703" ||
-    (error?.message?.toLowerCase().includes("column") &&
-      error.message.toLowerCase().includes("does not exist"))
+    error?.code === "PGRST204" ||
+    (message.includes("column") && message.includes("does not exist")) ||
+    (message.includes("could not find") && message.includes("schema cache"))
   );
 }
 

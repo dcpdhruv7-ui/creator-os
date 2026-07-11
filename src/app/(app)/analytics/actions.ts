@@ -36,13 +36,16 @@ const analyticsSelect =
   "id, content_calendar_id, content_idea_id, platform, post_title, niche, sub_niche, views, likes, comments, shares, saves, reach, follows_gained, notes, posted_at, created_at, updated_at";
 const baseAnalyticsSelect =
   "id, content_idea_id, platform, post_title, niche, sub_niche, views, likes, comments, shares, saves, reach, posted_at, created_at";
-const platforms = ["Instagram", "YouTube Shorts", "TikTok", "LinkedIn", "Other"];
+const platforms = ["Instagram", "YouTube Shorts", "TikTok", "LinkedIn", "Twitter / X", "Other"];
 
 function isMissingColumnError(error: { code?: string; message?: string } | null) {
+  const message = error?.message?.toLowerCase() ?? "";
+
   return (
     error?.code === "42703" ||
-    (error?.message?.toLowerCase().includes("column") &&
-      error.message.toLowerCase().includes("does not exist"))
+    error?.code === "PGRST204" ||
+    (message.includes("column") && message.includes("does not exist")) ||
+    (message.includes("could not find") && message.includes("schema cache"))
   );
 }
 
@@ -292,8 +295,13 @@ export async function createAnalyticsEntry(
   }
 
   if (error) {
-    console.error("Analytics create failed:", error.message);
-    return { status: "error", message: "We could not save analytics. Please try again." };
+    console.error("Analytics create failed:", {
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+      message: error.message,
+    });
+    return { status: "error", message: "Analytics could not be saved. Please check setup." };
   }
 
   revalidatePath("/analytics");
@@ -398,8 +406,13 @@ export async function updateAnalyticsEntry(
   }
 
   if (error) {
-    console.error("Analytics update failed:", error.message);
-    return { status: "error", message: "We could not update analytics. Please try again." };
+    console.error("Analytics update failed:", {
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+      message: error.message,
+    });
+    return { status: "error", message: "Analytics could not be saved. Please check setup." };
   }
 
   revalidatePath("/analytics");
