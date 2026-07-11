@@ -34,7 +34,40 @@ export type AnalyticsActionState = {
 
 const analyticsSelect =
   "id, content_calendar_id, content_idea_id, platform, post_title, niche, sub_niche, views, likes, comments, shares, saves, reach, follows_gained, notes, posted_at, created_at, updated_at";
+const baseAnalyticsSelect =
+  "id, content_idea_id, platform, post_title, niche, sub_niche, views, likes, comments, shares, saves, reach, posted_at, created_at";
 const platforms = ["Instagram", "YouTube Shorts", "TikTok", "LinkedIn", "Other"];
+
+function isMissingColumnError(error: { code?: string; message?: string } | null) {
+  return (
+    error?.code === "42703" ||
+    (error?.message?.toLowerCase().includes("column") &&
+      error.message.toLowerCase().includes("does not exist"))
+  );
+}
+
+function normalizeAnalyticsEntry(entry: Partial<AnalyticsEntryPayload>): AnalyticsEntryPayload {
+  return {
+    id: entry.id ?? "",
+    content_calendar_id: entry.content_calendar_id ?? null,
+    content_idea_id: entry.content_idea_id ?? null,
+    platform: entry.platform ?? null,
+    post_title: entry.post_title ?? null,
+    niche: entry.niche ?? null,
+    sub_niche: entry.sub_niche ?? null,
+    views: entry.views ?? 0,
+    likes: entry.likes ?? 0,
+    comments: entry.comments ?? 0,
+    shares: entry.shares ?? 0,
+    saves: entry.saves ?? 0,
+    reach: entry.reach ?? 0,
+    follows_gained: entry.follows_gained ?? 0,
+    notes: entry.notes ?? null,
+    posted_at: entry.posted_at ?? null,
+    created_at: entry.created_at ?? null,
+    updated_at: entry.updated_at ?? null,
+  };
+}
 
 function stringField(formData: FormData, name: string) {
   return String(formData.get(name) ?? "").trim();
@@ -76,6 +109,10 @@ async function hasCalendarAnalytics(
   }
 
   const { data, error } = await query.limit(1);
+
+  if (isMissingColumnError(error)) {
+    return false;
+  }
 
   if (error) {
     throw error;
@@ -214,28 +251,45 @@ export async function createAnalyticsEntry(
   }
 
   const { calendar, idea } = linked;
-  const { data, error } = await supabase
+  const baseValues = {
+    user_id: userId,
+    content_idea_id: idea?.id ?? null,
+    platform: payload.platform || calendar?.platform || "Instagram",
+    post_title: payload.postTitle || calendar?.title || idea?.title || "Manual analytics entry",
+    niche: idea?.niche ?? null,
+    sub_niche: idea?.sub_niche ?? null,
+    views: payload.views,
+    likes: payload.likes,
+    comments: payload.comments,
+    shares: payload.shares,
+    saves: payload.saves,
+    reach: payload.reach,
+    posted_at: payload.postedAt || calendar?.scheduled_date || null,
+  };
+  const enhancedValues = {
+    ...baseValues,
+    content_calendar_id: calendar?.id ?? null,
+    follows_gained: payload.followsGained,
+    notes: payload.notes,
+  };
+  const insertResult = await supabase
     .from("analytics_entries")
-    .insert({
-      user_id: userId,
-      content_calendar_id: calendar?.id ?? null,
-      content_idea_id: idea?.id ?? null,
-      platform: payload.platform || calendar?.platform || "Instagram",
-      post_title: payload.postTitle || calendar?.title || idea?.title || "Manual analytics entry",
-      niche: idea?.niche ?? null,
-      sub_niche: idea?.sub_niche ?? null,
-      views: payload.views,
-      likes: payload.likes,
-      comments: payload.comments,
-      shares: payload.shares,
-      saves: payload.saves,
-      reach: payload.reach,
-      follows_gained: payload.followsGained,
-      notes: payload.notes,
-      posted_at: payload.postedAt || calendar?.scheduled_date || null,
-    })
+    .insert(enhancedValues)
     .select(analyticsSelect)
     .single();
+  let data = insertResult.data as Partial<AnalyticsEntryPayload> | null;
+  let error = insertResult.error;
+
+  if (isMissingColumnError(error)) {
+    const fallbackResult = await supabase
+      .from("analytics_entries")
+      .insert(baseValues)
+      .select(baseAnalyticsSelect)
+      .single();
+
+    data = fallbackResult.data as Partial<AnalyticsEntryPayload> | null;
+    error = fallbackResult.error;
+  }
 
   if (error) {
     console.error("Analytics create failed:", error.message);
@@ -248,7 +302,7 @@ export async function createAnalyticsEntry(
   return {
     status: "success",
     message: "Analytics entry saved.",
-    entry: data as AnalyticsEntryPayload,
+    entry: normalizeAnalyticsEntry(data as Partial<AnalyticsEntryPayload>),
   };
 }
 
@@ -300,29 +354,48 @@ export async function updateAnalyticsEntry(
   }
 
   const { calendar, idea } = linked;
-  const { data, error } = await supabase
+  const baseValues = {
+    content_idea_id: idea?.id ?? null,
+    platform: payload.platform || calendar?.platform || "Instagram",
+    post_title: payload.postTitle || calendar?.title || idea?.title || "Manual analytics entry",
+    niche: idea?.niche ?? null,
+    sub_niche: idea?.sub_niche ?? null,
+    views: payload.views,
+    likes: payload.likes,
+    comments: payload.comments,
+    shares: payload.shares,
+    saves: payload.saves,
+    reach: payload.reach,
+    posted_at: payload.postedAt || calendar?.scheduled_date || null,
+  };
+  const enhancedValues = {
+    ...baseValues,
+    content_calendar_id: calendar?.id ?? null,
+    follows_gained: payload.followsGained,
+    notes: payload.notes,
+  };
+  const updateResult = await supabase
     .from("analytics_entries")
-    .update({
-      content_calendar_id: calendar?.id ?? null,
-      content_idea_id: idea?.id ?? null,
-      platform: payload.platform || calendar?.platform || "Instagram",
-      post_title: payload.postTitle || calendar?.title || idea?.title || "Manual analytics entry",
-      niche: idea?.niche ?? null,
-      sub_niche: idea?.sub_niche ?? null,
-      views: payload.views,
-      likes: payload.likes,
-      comments: payload.comments,
-      shares: payload.shares,
-      saves: payload.saves,
-      reach: payload.reach,
-      follows_gained: payload.followsGained,
-      notes: payload.notes,
-      posted_at: payload.postedAt || calendar?.scheduled_date || null,
-    })
+    .update(enhancedValues)
     .eq("id", payload.entryId)
     .eq("user_id", userId)
     .select(analyticsSelect)
     .single();
+  let data = updateResult.data as Partial<AnalyticsEntryPayload> | null;
+  let error = updateResult.error;
+
+  if (isMissingColumnError(error)) {
+    const fallbackResult = await supabase
+      .from("analytics_entries")
+      .update(baseValues)
+      .eq("id", payload.entryId)
+      .eq("user_id", userId)
+      .select(baseAnalyticsSelect)
+      .single();
+
+    data = fallbackResult.data as Partial<AnalyticsEntryPayload> | null;
+    error = fallbackResult.error;
+  }
 
   if (error) {
     console.error("Analytics update failed:", error.message);
@@ -335,7 +408,7 @@ export async function updateAnalyticsEntry(
   return {
     status: "success",
     message: "Analytics entry updated.",
-    entry: data as AnalyticsEntryPayload,
+    entry: normalizeAnalyticsEntry(data as Partial<AnalyticsEntryPayload>),
   };
 }
 
