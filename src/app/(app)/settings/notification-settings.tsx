@@ -19,6 +19,15 @@ type NotificationSettingsProps = {
   vapidPublicKey: string;
 };
 
+type NotificationDevice = {
+  id: string;
+  endpoint: string;
+  label: string;
+  enabled: boolean;
+  created_at: string | null;
+  last_used_at: string | null;
+};
+
 const defaultPreferences: NotificationPreferences = {
   calendar_reminders_enabled: true,
   reminder_minutes_before: 60,
@@ -76,8 +85,11 @@ export function NotificationSettings({
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
+  const [isTestingAll, setIsTestingAll] = useState(false);
   const [isSavingPreferences, setIsSavingPreferences] = useState(false);
   const [preferences, setPreferences] = useState(defaultPreferences);
+  const [devices, setDevices] = useState<NotificationDevice[]>([]);
+  const [currentEndpoint, setCurrentEndpoint] = useState("");
   const [setupNeeded, setSetupNeeded] = useState(false);
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error" | "info">("info");
@@ -98,11 +110,16 @@ export function NotificationSettings({
     }
 
     getActiveSubscription()
-      .then((subscription) => setIsSubscribed(Boolean(subscription)))
+      .then((subscription) => {
+        setIsSubscribed(Boolean(subscription));
+        setCurrentEndpoint(subscription?.endpoint ?? "");
+      })
       .catch(() => setIsSubscribed(false));
   }, [isSupported]);
 
   useEffect(() => {
+    refreshDevices();
+
     fetch("/api/notifications/preferences")
       .then((response) => response.json())
       .then((data) => {
@@ -117,6 +134,19 @@ export function NotificationSettings({
         setMessage("Notification preferences could not be loaded.");
       });
   }, []);
+
+  async function refreshDevices() {
+    try {
+      const response = await fetch("/api/notifications/subscribe");
+      const data = await response.json();
+
+      if (response.ok && data.devices) {
+        setDevices(data.devices);
+      }
+    } catch {
+      setDevices([]);
+    }
+  }
 
   function showMessage(nextMessage: string, tone: "success" | "error" | "info" = "info") {
     setMessage(nextMessage);
@@ -196,6 +226,8 @@ export function NotificationSettings({
       }
 
       setIsSubscribed(true);
+      setCurrentEndpoint(subscription.endpoint);
+      await refreshDevices();
       showMessage("Notifications enabled for this device.", "success");
     } catch (error) {
       showMessage(error instanceof Error ? error.message : "Notifications could not be enabled.", "error");
@@ -222,6 +254,8 @@ export function NotificationSettings({
       });
 
       setIsSubscribed(false);
+      setCurrentEndpoint("");
+      await refreshDevices();
       showMessage("Notifications disabled for this device.", "success");
     } catch (error) {
       showMessage(error instanceof Error ? error.message : "Notifications could not be disabled.", "error");
@@ -234,7 +268,12 @@ export function NotificationSettings({
     setIsTesting(true);
 
     try {
-      const response = await fetch("/api/notifications/test", { method: "POST" });
+      const subscription = await getActiveSubscription();
+      const response = await fetch("/api/notifications/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ endpoint: subscription?.endpoint ?? currentEndpoint }),
+      });
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
@@ -249,6 +288,39 @@ export function NotificationSettings({
     }
   }
 
+  async function sendTestToAllDevices() {
+    setIsTestingAll(true);
+
+    try {
+      const response = await fetch("/api/notifications/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target: "all" }),
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(data.error ?? "Test notification could not be sent.");
+      }
+
+      showMessage(`Test notification sent to ${data.sentCount ?? "enabled"} device(s).`, "success");
+    } catch (error) {
+      showMessage(error instanceof Error ? error.message : "Test notification could not be sent.", "error");
+    } finally {
+      setIsTestingAll(false);
+    }
+  }
+
+  function formatDate(value: string | null) {
+    if (!value) return "Not used yet";
+
+    return new Date(value).toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  }
+
   return (
     <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
       <Card className="border-emerald-300/20">
@@ -261,6 +333,10 @@ export function NotificationSettings({
               <CardTitle>Push notifications</CardTitle>
               <p className="mt-1 text-sm leading-6 text-zinc-400">
                 Get reminders for planned posts, saved ideas, and content workflow tasks.
+              </p>
+              <p className="mt-2 text-sm leading-6 text-emerald-100">
+                Notifications are enabled per device. Enable them on each phone, tablet, or
+                browser where you want reminders.
               </p>
             </div>
           </div>
@@ -281,7 +357,7 @@ export function NotificationSettings({
                   type="button"
                 >
                   {isBusy ? <LoaderCircle className="animate-spin" /> : <Bell />}
-                  Enable notifications
+                  Enable on this device
                 </Button>
                 <Button
                   disabled={isTesting || !isSubscribed}
@@ -290,7 +366,16 @@ export function NotificationSettings({
                   variant="secondary"
                 >
                   {isTesting ? <LoaderCircle className="animate-spin" /> : <Send />}
-                  Send test
+                  Send test to this device
+                </Button>
+                <Button
+                  disabled={isTestingAll || devices.filter((device) => device.enabled).length === 0}
+                  onClick={sendTestToAllDevices}
+                  type="button"
+                  variant="secondary"
+                >
+                  {isTestingAll ? <LoaderCircle className="animate-spin" /> : <Send />}
+                  Send test to all devices
                 </Button>
                 <Button
                   disabled={isBusy || !isSubscribed}
@@ -304,8 +389,9 @@ export function NotificationSettings({
               </div>
             </div>
             <p className="mt-4 text-sm leading-6 text-zinc-500">
-              Browser notifications only work after you allow them on this device. Mobile support
-              depends on the browser and whether the app is installed to the home screen.
+              Browser notifications only work after you allow them on this device. The same account
+              can have multiple enabled devices, but each browser creates its own notification
+              connection.
             </p>
           </div>
 
@@ -389,6 +475,63 @@ export function NotificationSettings({
               ))}
             </select>
           </label>
+
+          <div className="rounded-lg border border-white/10 bg-white/[0.025] p-4">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-white">Connected devices</p>
+                <p className="mt-1 text-sm text-zinc-500">
+                  These are browsers where this account has enabled notifications.
+                </p>
+              </div>
+              <span className="text-xs text-zinc-500">
+                {devices.filter((device) => device.enabled).length} active
+              </span>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {devices.length > 0 ? (
+                devices.map((device) => {
+                  const isCurrentDevice = currentEndpoint && device.endpoint === currentEndpoint;
+
+                  return (
+                    <div
+                      className="rounded-md border border-white/10 bg-zinc-950/70 p-3"
+                      key={device.id}
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-white">
+                            {isCurrentDevice ? "Current device" : device.label}
+                          </p>
+                          <p className="mt-1 text-xs text-zinc-500">
+                            {isCurrentDevice ? device.label : `Last used: ${formatDate(device.last_used_at)}`}
+                          </p>
+                        </div>
+                        <span
+                          className={cn(
+                            "rounded-full border px-2 py-0.5 text-xs",
+                            device.enabled
+                              ? "border-emerald-300/20 bg-emerald-400/10 text-emerald-200"
+                              : "border-white/10 bg-white/[0.04] text-zinc-500",
+                          )}
+                        >
+                          {device.enabled ? "Enabled" : "Disabled"}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-xs text-zinc-600">
+                        Added {formatDate(device.created_at)}
+                      </p>
+                    </div>
+                  );
+                })
+              ) : (
+                <p className="rounded-md border border-dashed border-white/10 p-3 text-sm text-zinc-500">
+                  No notification devices are connected yet.
+                </p>
+              )}
+            </div>
+          </div>
         </CardContent>
       </Card>
 
@@ -407,8 +550,8 @@ export function NotificationSettings({
         <CardContent>
           <div className="space-y-4 text-sm leading-6 text-zinc-400">
             <p>
-              Enable notifications on each device where you want Creator OS reminders. You can
-              send a test notification after enabling.
+              Enable notifications on each device where you want Creator OS reminders. A phone,
+              tablet, desktop browser, and installed PWA each needs its own setup.
             </p>
             <p>
               Calendar reminders are based on posts you schedule in Creator OS. They do not post,

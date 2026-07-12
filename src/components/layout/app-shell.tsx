@@ -18,10 +18,10 @@ export function AppShell({ children, userEmail }: AppShellProps) {
   const pathname = usePathname();
 
   return (
-    <div className="min-h-screen bg-[#060807] text-zinc-50">
-      <div className="fixed inset-0 -z-10 bg-[radial-gradient(circle_at_top_right,rgba(16,185,129,0.13),transparent_30%),linear-gradient(180deg,#090b0a,#050505)]" />
-      <aside className="fixed left-0 top-0 hidden h-screen w-72 border-r border-white/10 bg-black/35 px-4 py-5 backdrop-blur xl:block">
-        <Link className="flex items-center gap-3 px-2" href="/dashboard">
+    <div className="min-h-dvh overflow-x-hidden bg-[#060807] text-zinc-50">
+      <div className="pointer-events-none fixed inset-0 -z-10 bg-[radial-gradient(circle_at_top_right,rgba(16,185,129,0.13),transparent_30%),linear-gradient(180deg,#090b0a,#050505)]" />
+      <aside className="fixed left-0 top-0 hidden h-dvh w-72 border-r border-white/10 bg-black/35 px-4 py-5 backdrop-blur xl:block">
+        <Link className="flex min-h-11 touch-manipulation items-center gap-3 px-2" href="/dashboard">
           <span className="flex size-10 items-center justify-center rounded-md bg-emerald-400 text-base font-black text-zinc-950">
             CO
           </span>
@@ -39,7 +39,7 @@ export function AppShell({ children, userEmail }: AppShellProps) {
             return (
               <Link
                 className={cn(
-                  "flex h-11 items-center gap-3 rounded-md px-3 text-sm font-medium text-zinc-400 transition-colors hover:bg-white/[0.06] hover:text-zinc-50",
+                  "flex h-11 touch-manipulation items-center gap-3 rounded-md px-3 text-sm font-medium text-zinc-400 transition-colors hover:bg-white/[0.06] hover:text-zinc-50",
                   isActive && "bg-emerald-400/12 text-emerald-200",
                 )}
                 href={item.href}
@@ -65,10 +65,10 @@ export function AppShell({ children, userEmail }: AppShellProps) {
         </div>
       </aside>
 
-      <div className="flex min-h-screen flex-col xl:pl-72">
-        <header className="sticky top-0 z-30 border-b border-white/10 bg-black/40 px-4 py-3 backdrop-blur md:px-6 xl:px-8">
+      <div className="flex min-h-dvh min-w-0 flex-col xl:pl-72">
+        <header className="sticky top-0 z-30 border-b border-white/10 bg-black/80 px-4 py-3 backdrop-blur-sm md:px-6 xl:bg-black/40 xl:px-8 xl:backdrop-blur">
           <div className="flex items-center justify-between gap-3">
-            <Link className="flex items-center gap-3 xl:hidden" href="/dashboard">
+            <Link className="flex min-h-11 touch-manipulation items-center gap-3 xl:hidden" href="/dashboard">
               <span className="flex size-9 items-center justify-center rounded-md bg-emerald-400 text-sm font-black text-zinc-950">
                 CO
               </span>
@@ -87,11 +87,13 @@ export function AppShell({ children, userEmail }: AppShellProps) {
           </div>
         </header>
 
-        <main className="flex-1 px-4 pb-28 pt-5 md:px-6 xl:px-8 xl:pb-8">{children}</main>
+        <main className="min-w-0 flex-1 px-4 pb-[calc(7.5rem+env(safe-area-inset-bottom))] pt-5 md:px-6 xl:px-8 xl:pb-8">
+          {children}
+        </main>
       </div>
 
-      <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-white/10 bg-black/88 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-2 backdrop-blur xl:hidden">
-        <div className="flex gap-1 overflow-x-auto px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-white/10 bg-black/95 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-2 shadow-[0_-12px_28px_rgba(0,0,0,0.35)] xl:hidden">
+        <div className="flex touch-pan-x gap-1 overflow-x-auto overscroll-x-contain px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {navigationItems.map((item) => {
             const isActive = pathname === item.href;
             const Icon = item.icon;
@@ -100,11 +102,13 @@ export function AppShell({ children, userEmail }: AppShellProps) {
               <Link
                 aria-label={item.title}
                 className={cn(
-                  "flex h-14 min-w-20 flex-col items-center justify-center gap-1 rounded-md px-2 text-[11px] font-medium text-zinc-500 transition-colors hover:text-zinc-100",
+                  "flex h-14 min-w-[4.75rem] touch-manipulation select-none flex-col items-center justify-center gap-1 rounded-md px-2 text-[11px] font-medium text-zinc-500 transition-colors active:bg-white/[0.08] active:text-zinc-100 hover:text-zinc-100",
                   isActive && "bg-emerald-400/12 text-emerald-200",
                 )}
+                draggable={false}
                 href={item.href}
                 key={item.href}
+                prefetch
               >
                 <Icon className="size-4" />
                 <span className="max-w-full truncate">{item.title}</span>

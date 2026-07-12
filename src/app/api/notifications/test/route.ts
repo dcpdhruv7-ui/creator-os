@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { sendWebPushNotification, type PushSubscriptionRow } from "@/lib/notifications";
 import { createClient } from "@/lib/supabase/server";
 
-export async function POST() {
+export async function POST(request: Request) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -13,11 +13,28 @@ export async function POST() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data: subscriptions, error } = await supabase
+  const body = await request.json().catch(() => ({}));
+  const endpoint = String(body?.endpoint ?? "");
+  const target = body?.target === "all" ? "all" : "device";
+
+  if (target === "device" && !endpoint) {
+    return NextResponse.json(
+      { error: "Enable notifications on this device before sending a test" },
+      { status: 400 },
+    );
+  }
+
+  let query = supabase
     .from("push_subscriptions")
     .select("id, endpoint, p256dh, auth")
     .eq("user_id", user.id)
     .eq("enabled", true);
+
+  if (target === "device" && endpoint) {
+    query = query.eq("endpoint", endpoint);
+  }
+
+  const { data: subscriptions, error } = await query;
 
   if (error) {
     console.error("Push test subscription lookup failed:", error.message);
@@ -25,14 +42,25 @@ export async function POST() {
   }
 
   if (!subscriptions?.length) {
-    return NextResponse.json({ error: "No active push subscription found" }, { status: 404 });
+    return NextResponse.json(
+      {
+        error:
+          target === "device"
+            ? "No active push subscription found for this device"
+            : "No active push subscriptions found",
+      },
+      { status: 404 },
+    );
   }
 
   const results = await Promise.allSettled(
     (subscriptions as PushSubscriptionRow[]).map((subscription) =>
       sendWebPushNotification(subscription, {
         title: "Creator OS notifications are on",
-        body: "You'll get reminders for planned posts and content tasks.",
+        body:
+          target === "all"
+            ? "This test was sent to every enabled device on your account."
+            : "This test was sent to this device.",
         url: "/calendar",
       }),
     ),
