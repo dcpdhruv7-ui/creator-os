@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   BarChart3,
   Check,
@@ -421,7 +421,7 @@ export function AnalyticsWorkspace({
     : null;
   const unlinkedEntriesCount = localEntries.filter((entry) => !entry.niche).length;
 
-  function resetForm() {
+  const resetForm = useCallback(() => {
     setEditingEntryId(null);
     setSelectedCalendarId("");
     setSelectedIdeaId("");
@@ -438,7 +438,29 @@ export function AnalyticsWorkspace({
     setManualNiche(currentNiche ?? "");
     setManualSubNiche(currentSubNiche ?? "");
     setNotes("");
-  }
+  }, [currentNiche, currentSubNiche, today]);
+
+  useEffect(() => {
+    if (!editingEntryId) {
+      return;
+    }
+
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        resetForm();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [editingEntryId, resetForm]);
 
   function selectCalendarPost(calendarId: string) {
     setSelectedCalendarId(calendarId);
@@ -478,7 +500,6 @@ export function AnalyticsWorkspace({
 
   function focusEditForm() {
     window.requestAnimationFrame(() => {
-      formCardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       postTitleInputRef.current?.focus({ preventScroll: true });
     });
   }
@@ -582,6 +603,19 @@ export function AnalyticsWorkspace({
   return (
     <div className="space-y-8">
       <div className="grid gap-5 xl:grid-cols-[0.95fr_1.45fr]">
+        <div
+          className={cn(
+            editingEntryId &&
+              "fixed inset-0 z-50 flex items-end bg-black/70 p-3 backdrop-blur-sm sm:items-center sm:justify-center",
+          )}
+          onClick={editingEntryId ? resetForm : undefined}
+        >
+          <div
+            className={cn(
+              editingEntryId && "max-h-[92dvh] w-full overflow-y-auto sm:max-w-2xl",
+            )}
+            onClick={(event) => event.stopPropagation()}
+          >
         <Card className="border-emerald-300/20" ref={formCardRef}>
           <CardHeader>
             <div className="flex items-center gap-3">
@@ -777,7 +811,7 @@ export function AnalyticsWorkspace({
               <div className="flex flex-wrap justify-end gap-2">
                 {editingEntryId ? (
                   <Button onClick={resetForm} type="button" variant="secondary">
-                    Cancel edit
+                    Cancel
                   </Button>
                 ) : null}
                 <Button disabled={isSaving} type="submit">
@@ -788,6 +822,8 @@ export function AnalyticsWorkspace({
             </form>
           </CardContent>
         </Card>
+          </div>
+        </div>
 
         <section className="space-y-5">
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
