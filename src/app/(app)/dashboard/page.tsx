@@ -12,15 +12,14 @@ import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  buildRecommendationInsights,
+  type RecommendationAnalyticsEntry,
+  type RecommendationCalendarEntry,
+  type RecommendationCaption,
+  type RecommendationIdea,
+} from "@/lib/recommendations";
 import { createClient } from "@/lib/supabase/server";
-
-const dashboardCards = [
-  {
-    title: "Recommendations",
-    description: "Simple growth recommendations based on your inputs.",
-    icon: Sparkles,
-  },
-];
 
 function dateInputValue(date: Date) {
   const year = date.getFullYear();
@@ -124,6 +123,60 @@ export default async function DashboardPage() {
             .eq("user_id", user!.id)
         ).data?.reduce((sum, entry) => sum + (entry.views ?? 0), 0) ?? 0
       : 0;
+  const [recommendationIdeas, recommendationCaptions, recommendationCalendar, recommendationAnalytics] =
+    await Promise.all([
+      supabase
+        .from("content_ideas")
+        .select(
+          "id, title, niche, sub_niche, format, hook, shot_list, caption_angle, difficulty, goal, status, priority",
+        )
+        .eq("user_id", user!.id),
+      supabase
+        .from("captions")
+        .select("id, content_idea_id, caption_type, hook, body, cta, hashtags")
+        .eq("user_id", user!.id),
+      supabase
+        .from("content_calendar")
+        .select("id, content_idea_id, title, platform, scheduled_date, scheduled_time, status")
+        .eq("user_id", user!.id),
+      supabase
+        .from("analytics_entries")
+        .select(
+          "id, content_idea_id, platform, post_title, niche, sub_niche, views, likes, comments, shares, saves, reach, posted_at, created_at",
+        )
+        .eq("user_id", user!.id),
+    ]);
+  const recommendationInsights = buildRecommendationInsights({
+    profile: creatorProfile
+      ? {
+          niche: creatorProfile.niche ?? null,
+          sub_niche: creatorProfile.sub_niche ?? null,
+          selected_creators: creatorProfile.selected_creators,
+        }
+      : null,
+    ideas: (recommendationIdeas.data ?? []) as RecommendationIdea[],
+    captions: (recommendationCaptions.data ?? []) as RecommendationCaption[],
+    calendarEntries: (recommendationCalendar.data ?? []) as RecommendationCalendarEntry[],
+    analyticsEntries: ((recommendationAnalytics.data ?? []) as Partial<RecommendationAnalyticsEntry>[]).map(
+      (entry) => ({
+        id: entry.id ?? "",
+        content_idea_id: entry.content_idea_id ?? null,
+        platform: entry.platform ?? null,
+        post_title: entry.post_title ?? null,
+        niche: entry.niche ?? null,
+        sub_niche: entry.sub_niche ?? null,
+        views: entry.views ?? 0,
+        likes: entry.likes ?? 0,
+        comments: entry.comments ?? 0,
+        shares: entry.shares ?? 0,
+        saves: entry.saves ?? 0,
+        reach: entry.reach ?? 0,
+        follows_gained: entry.follows_gained ?? 0,
+        posted_at: entry.posted_at ?? null,
+        created_at: entry.created_at ?? null,
+      }),
+    ),
+  });
 
   return (
     <section className="mx-auto w-full max-w-6xl">
@@ -315,26 +368,40 @@ export default async function DashboardPage() {
           </CardContent>
         </Card>
 
-        {dashboardCards.map((card) => {
-          const Icon = card.icon;
-
-          return (
-            <Card className="min-h-48" key={card.title}>
-              <CardHeader>
-                <div className="mb-3 flex size-10 items-center justify-center rounded-md border border-emerald-300/20 bg-emerald-400/10 text-emerald-200">
-                  <Icon className="size-5" />
-                </div>
-                <CardTitle>{card.title}</CardTitle>
-                <CardDescription>{card.description}</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-600">
-                  Placeholder
+        <Card className="min-h-48 border-emerald-300/20">
+          <CardHeader>
+            <div className="mb-3 flex size-10 items-center justify-center rounded-md border border-emerald-300/20 bg-emerald-400/10 text-emerald-200">
+              <Sparkles className="size-5" />
+            </div>
+            <CardTitle>Recommendations</CardTitle>
+            <CardDescription>
+              <span className="block text-base font-medium text-zinc-100">
+                {recommendationInsights.score}/100 readiness
+              </span>
+              <span className="mt-1 block">{recommendationInsights.scoreLabel}</span>
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="mb-4 space-y-2">
+              {recommendationInsights.topRecommendations.slice(0, 2).map((item) => (
+                <p className="text-sm leading-5 text-zinc-400" key={item.title}>
+                  {item.title}
                 </p>
-              </CardContent>
-            </Card>
-          );
-        })}
+              ))}
+              {recommendationInsights.topRecommendations.length === 0 ? (
+                <p className="text-sm leading-5 text-zinc-400">
+                  Add a little more data to unlock specific next moves.
+                </p>
+              ) : null}
+            </div>
+            <Button asChild size="sm" variant="secondary">
+              <Link href="/recommendations">
+                Open recommendations
+                <ArrowRight />
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     </section>
   );
