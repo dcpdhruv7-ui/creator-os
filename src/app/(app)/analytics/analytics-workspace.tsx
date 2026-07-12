@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useRef, useState, type FormEvent } from "react";
 import {
   BarChart3,
   Check,
@@ -352,6 +352,8 @@ export function AnalyticsWorkspace({
   const [manualNiche, setManualNiche] = useState(currentNiche ?? "");
   const [manualSubNiche, setManualSubNiche] = useState(currentSubNiche ?? "");
   const [notes, setNotes] = useState("");
+  const formCardRef = useRef<HTMLDivElement>(null);
+  const postTitleInputRef = useRef<HTMLInputElement>(null);
   const ideaMap = useMemo(() => new Map(ideas.map((idea) => [idea.id, idea])), [ideas]);
   const calendarMap = useMemo(
     () => new Map(calendarPosts.map((post) => [post.id, post])),
@@ -390,9 +392,13 @@ export function AnalyticsWorkspace({
   const nicheOptions = useMemo(
     () =>
       Array.from(
-        new Set([currentNiche, ...ideas.map((idea) => idea.niche)].filter(Boolean) as string[]),
+        new Set(
+          [currentNiche, manualNiche, ...ideas.map((idea) => idea.niche)].filter(
+            Boolean,
+          ) as string[],
+        ),
       ),
-    [currentNiche, ideas],
+    [currentNiche, ideas, manualNiche],
   );
   const subNicheOptions = useMemo(
     () =>
@@ -400,13 +406,14 @@ export function AnalyticsWorkspace({
         new Set(
           [
             currentSubNiche,
+            manualSubNiche,
             ...ideas
               .filter((idea) => !manualNiche || idea.niche === manualNiche)
               .map((idea) => idea.sub_niche),
           ].filter(Boolean) as string[],
         ),
       ),
-    [currentSubNiche, ideas, manualNiche],
+    [currentSubNiche, ideas, manualNiche, manualSubNiche],
   );
   const selectedIdea = selectedIdeaId ? ideaMap.get(selectedIdeaId) : null;
   const linkedAssignment = selectedIdea
@@ -469,6 +476,13 @@ export function AnalyticsWorkspace({
     }
   }
 
+  function focusEditForm() {
+    window.requestAnimationFrame(() => {
+      formCardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      postTitleInputRef.current?.focus({ preventScroll: true });
+    });
+  }
+
   function editEntry(entry: AnalyticsEntryPayload) {
     setEditingEntryId(entry.id);
     setSelectedCalendarId(entry.content_calendar_id ?? "");
@@ -487,6 +501,7 @@ export function AnalyticsWorkspace({
     setManualSubNiche(entry.sub_niche ?? currentSubNiche ?? "");
     setNotes(entry.notes ?? "");
     setActionState(initialActionState);
+    focusEditForm();
   }
 
   async function saveEntry(event: FormEvent<HTMLFormElement>) {
@@ -567,7 +582,7 @@ export function AnalyticsWorkspace({
   return (
     <div className="space-y-8">
       <div className="grid gap-5 xl:grid-cols-[0.95fr_1.45fr]">
-        <Card className="border-emerald-300/20">
+        <Card className="border-emerald-300/20" ref={formCardRef}>
           <CardHeader>
             <div className="flex items-center gap-3">
               <div className="flex size-9 items-center justify-center rounded-md bg-emerald-400/10 text-emerald-200">
@@ -576,7 +591,9 @@ export function AnalyticsWorkspace({
               <div>
                 <CardTitle>{editingEntryId ? "Edit analytics entry" : "Add analytics entry"}</CardTitle>
                 <p className="mt-1 text-sm text-zinc-400">
-                  Add post results manually after publishing.
+                  {editingEntryId
+                    ? "Update this tracked post and assign it to the right niche."
+                    : "Add post results manually after publishing."}
                 </p>
               </div>
             </div>
@@ -584,6 +601,11 @@ export function AnalyticsWorkspace({
           <CardContent>
             <form className="space-y-4" onSubmit={saveEntry}>
               {editingEntryId ? <input name="entry_id" type="hidden" value={editingEntryId} /> : null}
+              {editingEntryId ? (
+                <div className="rounded-lg border border-emerald-300/25 bg-emerald-400/[0.08] px-4 py-3 text-sm text-emerald-100">
+                  Editing an existing analytics entry. Save changes or cancel edit when finished.
+                </div>
+              ) : null}
 
               <label className="block text-xs font-medium text-zinc-500">
                 Scheduled calendar post optional
@@ -635,37 +657,40 @@ export function AnalyticsWorkspace({
                     <div className="mt-3 grid gap-3 sm:grid-cols-2">
                       <label className="text-xs font-medium text-zinc-500">
                         Niche optional
-                        <input
+                        <select
                           className="mt-1 h-11 w-full rounded-md border border-white/10 bg-zinc-950 px-3 text-sm text-zinc-100"
-                          list="analytics-niche-options"
                           name="manual_niche"
-                          onChange={(event) => setManualNiche(event.target.value)}
-                          placeholder="Example: Food"
+                          onChange={(event) => {
+                            setManualNiche(event.target.value);
+                            setManualSubNiche("");
+                          }}
                           value={manualNiche}
-                        />
+                        >
+                          <option value="">Unassigned</option>
+                          {nicheOptions.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
                       </label>
                       <label className="text-xs font-medium text-zinc-500">
                         Sub-niche optional
-                        <input
+                        <select
                           className="mt-1 h-11 w-full rounded-md border border-white/10 bg-zinc-950 px-3 text-sm text-zinc-100"
-                          list="analytics-sub-niche-options"
                           name="manual_sub_niche"
                           onChange={(event) => setManualSubNiche(event.target.value)}
-                          placeholder="Example: Budget Meals"
                           value={manualSubNiche}
-                        />
+                        >
+                          <option value="">General / unassigned</option>
+                          {subNicheOptions.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
                       </label>
                     </div>
-                    <datalist id="analytics-niche-options">
-                      {nicheOptions.map((option) => (
-                        <option key={option} value={option} />
-                      ))}
-                    </datalist>
-                    <datalist id="analytics-sub-niche-options">
-                      {subNicheOptions.map((option) => (
-                        <option key={option} value={option} />
-                      ))}
-                    </datalist>
                   </>
                 )}
               </div>
@@ -676,6 +701,7 @@ export function AnalyticsWorkspace({
                   name="post_title"
                   onChange={(event) => setPostTitle(event.target.value)}
                   placeholder="Manual post title"
+                  ref={postTitleInputRef}
                   value={postTitle}
                 />
               </label>

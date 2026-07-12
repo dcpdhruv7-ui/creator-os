@@ -419,7 +419,7 @@ export async function updateAnalyticsEntry(
       hint: error.hint,
       message: error.message,
     });
-    return { status: "error", message: "Analytics could not be saved. Please check setup." };
+    return { status: "error", message: "We could not update analytics. Please try again." };
   }
 
   revalidatePath("/analytics");
