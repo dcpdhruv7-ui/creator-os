@@ -256,7 +256,7 @@ export default async function RecommendationsPage({
         <span className="text-sm text-zinc-500">
           {scope === "current"
             ? `Focused on ${profile?.niche ?? "your current niche"}${profile?.sub_niche ? ` / ${profile.sub_niche}` : ""}.`
-            : "Using all saved Creator OS data."}
+            : "All niches overview. Niche groups and unlinked analytics stay separated."}
         </span>
       </div>
 
@@ -351,7 +351,10 @@ export default async function RecommendationsPage({
         <StatCard label="Saved ideas" value={insights.counts.ideas} />
         <StatCard label="Saved captions" value={insights.counts.captions} />
         <StatCard label="This week" value={insights.counts.scheduledThisWeek} />
-        <StatCard label="Analytics" value={insights.counts.analyticsEntries} />
+        <StatCard
+          label={scope === "current" ? "Assigned analytics" : "Analytics"}
+          value={scope === "current" ? insights.counts.currentNicheAnalyticsEntries : insights.counts.analyticsEntries}
+        />
         <StatCard label="Posted" value={insights.counts.postedEntries} />
         <StatCard label="Inspirations" value={insights.counts.inspirationCount} />
       </div>
@@ -360,9 +363,68 @@ export default async function RecommendationsPage({
       insights.counts.analyticsEntries > 0 &&
       insights.counts.currentNicheAnalyticsEntries === 0 ? (
         <div className="mt-5 rounded-lg border border-emerald-300/15 bg-emerald-400/[0.06] p-4 text-sm leading-6 text-emerald-100">
-          You have {insights.counts.analyticsEntries} tracked posts. Link analytics entries to
-          saved ideas to unlock niche-specific recommendations.
+          {profile?.sub_niche ?? profile?.niche ?? "This niche"} has no assigned analytics yet.
+          You have {insights.counts.analyticsEntries} tracked posts that are not assigned to this
+          niche. Assign them to improve recommendations.
         </div>
+      ) : null}
+
+      {insights.counts.unlinkedAnalyticsEntries > 0 ? (
+        <Card className="mt-5 border-amber-300/20">
+          <CardHeader>
+            <CardTitle>Unlinked manual analytics</CardTitle>
+            <CardDescription>
+              These tracked posts are not connected to a niche yet. Assign them to improve
+              recommendations.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-zinc-300">
+                {insights.counts.unlinkedAnalyticsEntries} unlinked entr
+                {insights.counts.unlinkedAnalyticsEntries === 1 ? "y" : "ies"}
+              </p>
+              <Button asChild size="sm" variant="secondary">
+                <Link href="/analytics">
+                  Review in Analytics
+                  <ArrowRight />
+                </Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {scope === "all" && insights.analyticsGroups.length > 0 ? (
+        <Card className="mt-5">
+          <CardHeader>
+            <CardTitle>Analytics groups</CardTitle>
+            <CardDescription>
+              All-niches analytics are grouped by assigned niche. Unlinked entries stay separate.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {insights.analyticsGroups.map((group) => (
+                <div
+                  className={cn(
+                    "rounded-lg border p-3",
+                    group.unlinked
+                      ? "border-amber-300/20 bg-amber-400/10"
+                      : "border-white/10 bg-white/[0.025]",
+                  )}
+                  key={group.label}
+                >
+                  <p className="text-sm font-medium text-white">{group.label}</p>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    {group.count} tracked post{group.count === 1 ? "" : "s"} /{" "}
+                    {group.views.toLocaleString()} views
+                  </p>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       ) : null}
 
       {!hasAnyData ? (

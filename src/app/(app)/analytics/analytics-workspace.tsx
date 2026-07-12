@@ -102,7 +102,7 @@ function entryMatchesCurrentNiche(
   currentSubNiche: string | null,
 ) {
   if (!entry.niche && !entry.sub_niche) {
-    return true;
+    return false;
   }
 
   return entry.niche === currentNiche && entry.sub_niche === currentSubNiche;
@@ -349,6 +349,8 @@ export function AnalyticsWorkspace({
   const [saves, setSaves] = useState("");
   const [reach, setReach] = useState("");
   const [followsGained, setFollowsGained] = useState("");
+  const [manualNiche, setManualNiche] = useState(currentNiche ?? "");
+  const [manualSubNiche, setManualSubNiche] = useState(currentSubNiche ?? "");
   const [notes, setNotes] = useState("");
   const ideaMap = useMemo(() => new Map(ideas.map((idea) => [idea.id, idea])), [ideas]);
   const calendarMap = useMemo(
@@ -385,6 +387,32 @@ export function AnalyticsWorkspace({
   const platformsSeries = platformStats(visibleEntries);
   const breakdown = metricBreakdown(visibleEntries);
   const insights = buildInsights(visibleEntries, bestPlatform?.[0], bestFormat?.[0]);
+  const nicheOptions = useMemo(
+    () =>
+      Array.from(
+        new Set([currentNiche, ...ideas.map((idea) => idea.niche)].filter(Boolean) as string[]),
+      ),
+    [currentNiche, ideas],
+  );
+  const subNicheOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          [
+            currentSubNiche,
+            ...ideas
+              .filter((idea) => !manualNiche || idea.niche === manualNiche)
+              .map((idea) => idea.sub_niche),
+          ].filter(Boolean) as string[],
+        ),
+      ),
+    [currentSubNiche, ideas, manualNiche],
+  );
+  const selectedIdea = selectedIdeaId ? ideaMap.get(selectedIdeaId) : null;
+  const linkedAssignment = selectedIdea
+    ? `${selectedIdea.niche ?? "Unknown niche"} / ${selectedIdea.sub_niche ?? "General"}`
+    : null;
+  const unlinkedEntriesCount = localEntries.filter((entry) => !entry.niche).length;
 
   function resetForm() {
     setEditingEntryId(null);
@@ -400,6 +428,8 @@ export function AnalyticsWorkspace({
     setSaves("");
     setReach("");
     setFollowsGained("");
+    setManualNiche(currentNiche ?? "");
+    setManualSubNiche(currentSubNiche ?? "");
     setNotes("");
   }
 
@@ -416,6 +446,12 @@ export function AnalyticsWorkspace({
     setPlatform(post.platform ?? "Instagram");
     setPostedAt(post.scheduled_date ?? today);
     setPostTitle(post.title);
+
+    if (post.content_idea_id) {
+      const idea = ideaMap.get(post.content_idea_id);
+      setManualNiche(idea?.niche ?? currentNiche ?? "");
+      setManualSubNiche(idea?.sub_niche ?? currentSubNiche ?? "");
+    }
   }
 
   function selectIdea(ideaId: string) {
@@ -425,6 +461,11 @@ export function AnalyticsWorkspace({
 
     if (idea && !postTitle.trim()) {
       setPostTitle(idea.title);
+    }
+
+    if (idea) {
+      setManualNiche(idea.niche ?? "");
+      setManualSubNiche(idea.sub_niche ?? "");
     }
   }
 
@@ -442,6 +483,8 @@ export function AnalyticsWorkspace({
     setSaves(String(metric(entry.saves)));
     setReach(String(metric(entry.reach)));
     setFollowsGained(String(metric(entry.follows_gained)));
+    setManualNiche(entry.niche ?? currentNiche ?? "");
+    setManualSubNiche(entry.sub_niche ?? currentSubNiche ?? "");
     setNotes(entry.notes ?? "");
     setActionState(initialActionState);
   }
@@ -575,6 +618,57 @@ export function AnalyticsWorkspace({
                   ))}
                 </select>
               </label>
+
+              <div className="rounded-lg border border-white/10 bg-white/[0.025] p-3">
+                <p className="text-xs font-medium text-zinc-500">Analytics niche assignment</p>
+                {linkedAssignment ? (
+                  <p className="mt-2 text-sm leading-6 text-zinc-300">
+                    Linked idea selected. This entry will use{" "}
+                    <span className="font-medium text-emerald-200">{linkedAssignment}</span>.
+                  </p>
+                ) : (
+                  <>
+                    <p className="mt-2 text-sm leading-6 text-zinc-500">
+                      No saved idea selected. Assign this manual entry to a niche so recommendations
+                      stay separated.
+                    </p>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      <label className="text-xs font-medium text-zinc-500">
+                        Niche optional
+                        <input
+                          className="mt-1 h-11 w-full rounded-md border border-white/10 bg-zinc-950 px-3 text-sm text-zinc-100"
+                          list="analytics-niche-options"
+                          name="manual_niche"
+                          onChange={(event) => setManualNiche(event.target.value)}
+                          placeholder="Example: Food"
+                          value={manualNiche}
+                        />
+                      </label>
+                      <label className="text-xs font-medium text-zinc-500">
+                        Sub-niche optional
+                        <input
+                          className="mt-1 h-11 w-full rounded-md border border-white/10 bg-zinc-950 px-3 text-sm text-zinc-100"
+                          list="analytics-sub-niche-options"
+                          name="manual_sub_niche"
+                          onChange={(event) => setManualSubNiche(event.target.value)}
+                          placeholder="Example: Budget Meals"
+                          value={manualSubNiche}
+                        />
+                      </label>
+                    </div>
+                    <datalist id="analytics-niche-options">
+                      {nicheOptions.map((option) => (
+                        <option key={option} value={option} />
+                      ))}
+                    </datalist>
+                    <datalist id="analytics-sub-niche-options">
+                      {subNicheOptions.map((option) => (
+                        <option key={option} value={option} />
+                      ))}
+                    </datalist>
+                  </>
+                )}
+              </div>
 
               <label className="block text-xs font-medium text-zinc-500">
                 Post title optional
@@ -761,6 +855,12 @@ export function AnalyticsWorkspace({
             <p className="mt-1 text-sm text-zinc-400">
               Filter tracked posts by platform and current niche.
             </p>
+            {unlinkedEntriesCount > 0 ? (
+              <p className="mt-2 text-sm text-emerald-200">
+                {unlinkedEntriesCount} manual entr{unlinkedEntriesCount === 1 ? "y is" : "ies are"} not assigned
+                to a niche yet.
+              </p>
+            ) : null}
           </div>
           <div className="flex flex-wrap gap-2">
             <select
@@ -802,7 +902,9 @@ export function AnalyticsWorkspace({
                         {entry.post_title ?? "Manual analytics entry"}
                       </CardTitle>
                       <p className="mt-2 text-sm text-zinc-500">
-                        {entry.niche ? `${entry.niche} / ${entry.sub_niche ?? "General"}` : "Manual entry"}
+                        {entry.niche
+                          ? `${entry.niche} / ${entry.sub_niche ?? "General"}`
+                          : "Unlinked manual analytics"}
                       </p>
                     </div>
                     <div className="flex gap-2">

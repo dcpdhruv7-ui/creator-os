@@ -201,6 +201,8 @@ function readPayload(formData: FormData) {
     saves: intField(formData, "saves"),
     reach: intField(formData, "reach"),
     followsGained: intField(formData, "follows_gained"),
+    manualNiche: stringField(formData, "manual_niche") || null,
+    manualSubNiche: stringField(formData, "manual_sub_niche") || null,
     notes: stringField(formData, "notes") || null,
   };
 }
@@ -254,13 +256,15 @@ export async function createAnalyticsEntry(
   }
 
   const { calendar, idea } = linked;
+  const assignedNiche = idea?.niche ?? payload.manualNiche;
+  const assignedSubNiche = idea?.sub_niche ?? payload.manualSubNiche;
   const baseValues = {
     user_id: userId,
     content_idea_id: idea?.id ?? null,
     platform: payload.platform || calendar?.platform || "Instagram",
     post_title: payload.postTitle || calendar?.title || idea?.title || "Manual analytics entry",
-    niche: idea?.niche ?? null,
-    sub_niche: idea?.sub_niche ?? null,
+    niche: assignedNiche,
+    sub_niche: assignedNiche ? assignedSubNiche : null,
     views: payload.views,
     likes: payload.likes,
     comments: payload.comments,
@@ -306,6 +310,7 @@ export async function createAnalyticsEntry(
 
   revalidatePath("/analytics");
   revalidatePath("/dashboard");
+  revalidatePath("/recommendations");
 
   return {
     status: "success",
@@ -362,12 +367,14 @@ export async function updateAnalyticsEntry(
   }
 
   const { calendar, idea } = linked;
+  const assignedNiche = idea?.niche ?? payload.manualNiche;
+  const assignedSubNiche = idea?.sub_niche ?? payload.manualSubNiche;
   const baseValues = {
     content_idea_id: idea?.id ?? null,
     platform: payload.platform || calendar?.platform || "Instagram",
     post_title: payload.postTitle || calendar?.title || idea?.title || "Manual analytics entry",
-    niche: idea?.niche ?? null,
-    sub_niche: idea?.sub_niche ?? null,
+    niche: assignedNiche,
+    sub_niche: assignedNiche ? assignedSubNiche : null,
     views: payload.views,
     likes: payload.likes,
     comments: payload.comments,
@@ -417,6 +424,7 @@ export async function updateAnalyticsEntry(
 
   revalidatePath("/analytics");
   revalidatePath("/dashboard");
+  revalidatePath("/recommendations");
 
   return {
     status: "success",
@@ -456,6 +464,7 @@ export async function deleteAnalyticsEntry(
 
   revalidatePath("/analytics");
   revalidatePath("/dashboard");
+  revalidatePath("/recommendations");
 
   return {
     status: "success",
