@@ -356,6 +356,15 @@ export default async function RecommendationsPage({
         <StatCard label="Inspirations" value={insights.counts.inspirationCount} />
       </div>
 
+      {scope === "current" &&
+      insights.counts.analyticsEntries > 0 &&
+      insights.counts.currentNicheAnalyticsEntries === 0 ? (
+        <div className="mt-5 rounded-lg border border-emerald-300/15 bg-emerald-400/[0.06] p-4 text-sm leading-6 text-emerald-100">
+          You have {insights.counts.analyticsEntries} tracked posts. Link analytics entries to
+          saved ideas to unlock niche-specific recommendations.
+        </div>
+      ) : null}
+
       {!hasAnyData ? (
         <section className="mt-10">
           <div className="mb-4">

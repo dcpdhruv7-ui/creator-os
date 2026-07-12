@@ -88,6 +88,8 @@ export type RecommendationInsights = {
     calendarEntries: number;
     scheduledThisWeek: number;
     analyticsEntries: number;
+    currentNicheAnalyticsEntries: number;
+    unlinkedAnalyticsEntries: number;
     postedEntries: number;
     inspirationCount: number;
   };
@@ -274,6 +276,8 @@ export function buildRecommendationInsights({
     scope === "current"
       ? analyticsEntries.filter((entry) => isCurrentNicheItem(entry, profile))
       : analyticsEntries;
+  const totalAnalyticsEntries = analyticsEntries;
+  const unlinkedAnalyticsEntries = analyticsEntries.filter((entry) => !entry.niche);
   const captionIdeaIds = new Set(scopedCaptions.map((caption) => caption.content_idea_id).filter(Boolean));
   const scheduledIdeaIds = new Set(
     scopedCalendarEntries.map((entry) => entry.content_idea_id).filter(Boolean),
@@ -308,7 +312,7 @@ export function buildRecommendationInsights({
     { label: "At least 5 saved ideas", complete: scopedIdeas.length >= 5, points: 20 },
     { label: "At least 3 saved captions", complete: scopedCaptions.length >= 3, points: 15 },
     { label: "At least 3 posts this week", complete: scheduledThisWeek.length >= 3, points: 20 },
-    { label: "At least 3 analytics entries", complete: scopedAnalytics.length >= 3, points: 15 },
+    { label: "At least 3 analytics entries", complete: totalAnalyticsEntries.length >= 3, points: 15 },
   ];
   const score = scoreBreakdown.reduce(
     (sum, item) => sum + (item.complete ? item.points : 0),
@@ -356,11 +360,11 @@ export function buildRecommendationInsights({
     );
   }
 
-  if (postedEntries.length > scopedAnalytics.length) {
+  if (postedEntries.length > totalAnalyticsEntries.length) {
     weeklyActions.push(
       recommendation(
         "Track analytics for posts already marked as posted.",
-        `${plural(postedEntries.length, "calendar post")} are marked Posted, and ${plural(scopedAnalytics.length, "analytics entry")} are tracked.`,
+        `${plural(postedEntries.length, "calendar post")} are marked Posted, and ${plural(totalAnalyticsEntries.length, "analytics entry")} are tracked.`,
         "Medium",
         "Analytics",
         "Go to Analytics",
@@ -402,21 +406,21 @@ export function buildRecommendationInsights({
   }
 
   const performance: Recommendation[] = [];
-  const stats = platformStats(scopedAnalytics);
+  const stats = platformStats(totalAnalyticsEntries);
   const bestPlatformByViews = [...stats].sort((a, b) => b.views - a.views)[0];
   const bestPlatformByEngagement = [...stats].sort(
     (a, b) => b.averageEngagement - a.averageEngagement,
   )[0];
-  const bestPostByViews = [...scopedAnalytics].sort(
+  const bestPostByViews = [...totalAnalyticsEntries].sort(
     (a, b) => numberValue(b.views) - numberValue(a.views),
   )[0];
-  const bestPostByEngagement = [...scopedAnalytics].sort((a, b) => engagement(b) - engagement(a))[0];
+  const bestPostByEngagement = [...totalAnalyticsEntries].sort((a, b) => engagement(b) - engagement(a))[0];
 
-  if (scopedAnalytics.length < 3) {
+  if (totalAnalyticsEntries.length < 3) {
     performance.push(
       recommendation(
         "Track at least 3 posts to unlock stronger performance recommendations.",
-        `You have ${plural(scopedAnalytics.length, "tracked post")}. More entries will make platform and format signals more reliable.`,
+        `You have ${plural(totalAnalyticsEntries.length, "tracked post")}. More entries will make platform and format signals more reliable.`,
         "High",
         "Analytics",
         "Go to Analytics",
@@ -424,11 +428,24 @@ export function buildRecommendationInsights({
       ),
     );
   } else {
+    if (scope === "current" && scopedAnalytics.length === 0) {
+      performance.push(
+        recommendation(
+          `You have ${plural(totalAnalyticsEntries.length, "tracked post")}.`,
+          "None are linked to this niche yet. Link analytics entries to saved ideas for niche-specific recommendations.",
+          "Medium",
+          "Analytics",
+          "Go to Analytics",
+          "/analytics",
+        ),
+      );
+    }
+
     if (bestPlatformByViews) {
       performance.push(
         recommendation(
           `${bestPlatformByViews.platform} is currently strongest by views.`,
-          `${bestPlatformByViews.platform} has ${bestPlatformByViews.views.toLocaleString()} tracked views across ${plural(bestPlatformByViews.posts, "post")}.`,
+          `Based on your manually tracked posts, ${bestPlatformByViews.platform} has ${bestPlatformByViews.views.toLocaleString()} tracked views across ${plural(bestPlatformByViews.posts, "post")}.`,
           "Medium",
           "Platform",
           "Go to Analytics",
@@ -441,7 +458,7 @@ export function buildRecommendationInsights({
       performance.push(
         recommendation(
           `${bestPlatformByEngagement.platform} has your strongest average engagement.`,
-          `Average engagement is ${Math.round(bestPlatformByEngagement.averageEngagement).toLocaleString()} actions per tracked post.`,
+          `Based on your manually tracked posts, average engagement is ${Math.round(bestPlatformByEngagement.averageEngagement).toLocaleString()} actions per tracked post.`,
           "Medium",
           "Analytics",
           "Go to Analytics",
@@ -454,7 +471,7 @@ export function buildRecommendationInsights({
       performance.push(
         recommendation(
           "Turn your best-performing idea into a follow-up post.",
-          `${bestPostByViews.post_title ?? "Your top post"} has ${numberValue(bestPostByViews.views).toLocaleString()} views. Create a follow-up while the signal is fresh.`,
+          `${bestPostByViews.post_title ?? "Manual analytics entry"} has ${numberValue(bestPostByViews.views).toLocaleString()} views. Create a follow-up while the signal is fresh.`,
           "High",
           "Content",
           "Go to Ideas",
@@ -467,7 +484,7 @@ export function buildRecommendationInsights({
       performance.push(
         recommendation(
           "Create more save-worthy posts.",
-          `${bestPostByEngagement.post_title ?? "Your strongest engagement post"} earned ${plural(numberValue(bestPostByEngagement.saves), "save")}. Saves usually signal useful content.`,
+          `${bestPostByEngagement.post_title ?? "Manual analytics entry"} earned ${plural(numberValue(bestPostByEngagement.saves), "save")}. Saves usually signal useful content.`,
           "Medium",
           "Content",
           "Go to Ideas",
@@ -518,11 +535,24 @@ export function buildRecommendationInsights({
     );
   }
 
-  if (scopedIdeas.length > 0 && scopedAnalytics.length === 0) {
+  if (scopedIdeas.length > 0 && totalAnalyticsEntries.length === 0) {
     contentGaps.push(
       recommendation(
         "You have saved ideas but no analytics tracked yet.",
         "After posting, add manual results so Creator OS can learn what is working.",
+        "Medium",
+        "Analytics",
+        "Go to Analytics",
+        "/analytics",
+      ),
+    );
+  }
+
+  if (scopedIdeas.length > 0 && totalAnalyticsEntries.length > 0 && scopedAnalytics.length === 0) {
+    contentGaps.push(
+      recommendation(
+        "Your analytics are not linked to this niche yet.",
+        `You have ${plural(totalAnalyticsEntries.length, "tracked post")}, but none are linked to this niche. Link entries to saved ideas for more precise recommendations.`,
         "Medium",
         "Analytics",
         "Go to Analytics",
@@ -546,7 +576,7 @@ export function buildRecommendationInsights({
 
   const nextIdeas: Recommendation[] = [];
 
-  if (scopedAnalytics.length === 0) {
+  if (totalAnalyticsEntries.length === 0) {
     nextIdeas.push(
       recommendation(
         "Start with a balanced mix: 1 tutorial, 1 BTS, 1 final output.",
@@ -559,7 +589,7 @@ export function buildRecommendationInsights({
     );
   }
 
-  if ((patternCounts.tutorial ?? 0) >= 2 || scopedAnalytics.some((entry) => numberValue(entry.saves) > 0)) {
+  if ((patternCounts.tutorial ?? 0) >= 2 || totalAnalyticsEntries.some((entry) => numberValue(entry.saves) > 0)) {
     nextIdeas.push(
       recommendation(
         "Create one more tutorial-style idea for your current niche.",
@@ -734,7 +764,9 @@ export function buildRecommendationInsights({
       captions: scopedCaptions.length,
       calendarEntries: scopedCalendarEntries.length,
       scheduledThisWeek: scheduledThisWeek.length,
-      analyticsEntries: scopedAnalytics.length,
+      analyticsEntries: totalAnalyticsEntries.length,
+      currentNicheAnalyticsEntries: scopedAnalytics.length,
+      unlinkedAnalyticsEntries: unlinkedAnalyticsEntries.length,
       postedEntries: postedEntries.length,
       inspirationCount,
     },
