@@ -75,7 +75,7 @@ export type RecommendationAnalyticsEntry = {
   created_at: string | null;
 };
 
-export type RecommendationScope = "current" | "all";
+export type RecommendationScope = "current" | "selected" | "all" | "unlinked";
 
 export type RecommendationInsights = {
   scope: RecommendationScope;
@@ -260,27 +260,40 @@ export function buildRecommendationInsights({
   scope = "current",
 }: BuildRecommendationInput): RecommendationInsights {
   const bounds = weekBounds();
+  const isNicheScoped = scope === "current" || scope === "selected";
   const scopedIdeas =
-    scope === "current" ? ideas.filter((idea) => isCurrentNicheItem(idea, profile)) : ideas;
+    isNicheScoped
+      ? ideas.filter((idea) => isCurrentNicheItem(idea, profile))
+      : scope === "unlinked"
+        ? []
+        : ideas;
   const scopedIdeaIds = new Set(scopedIdeas.map((idea) => idea.id));
   const scopedCaptions =
-    scope === "current"
-      ? captions.filter((caption) => caption.content_idea_id && scopedIdeaIds.has(caption.content_idea_id))
-      : captions;
+    isNicheScoped
+      ? captions.filter(
+          (caption) => caption.content_idea_id && scopedIdeaIds.has(caption.content_idea_id),
+        )
+      : scope === "unlinked"
+        ? []
+        : captions;
   const scopedCalendarEntries =
-    scope === "current"
+    isNicheScoped
       ? calendarEntries.filter(
           (entry) => entry.content_idea_id && scopedIdeaIds.has(entry.content_idea_id),
         )
-      : calendarEntries;
+      : scope === "unlinked"
+        ? []
+        : calendarEntries;
   const scopedAnalytics =
-    scope === "current"
+    isNicheScoped
       ? analyticsEntries.filter((entry) => isCurrentNicheItem(entry, profile))
-      : analyticsEntries;
+      : scope === "unlinked"
+        ? analyticsEntries.filter((entry) => !entry.niche)
+        : analyticsEntries;
   const totalAnalyticsEntries = analyticsEntries;
   const unlinkedAnalyticsEntries = analyticsEntries.filter((entry) => !entry.niche);
-  const performanceEntries = scope === "current" ? scopedAnalytics : totalAnalyticsEntries;
-  const analyticsForScore = scope === "current" ? scopedAnalytics : totalAnalyticsEntries;
+  const performanceEntries = scope === "all" ? totalAnalyticsEntries : scopedAnalytics;
+  const analyticsForScore = scope === "all" ? totalAnalyticsEntries : scopedAnalytics;
   const analyticsGroups = Array.from(
     totalAnalyticsEntries.reduce((groups, entry) => {
       const label = entry.niche
@@ -438,7 +451,7 @@ export function buildRecommendationInsights({
   )[0];
   const bestPostByEngagement = [...performanceEntries].sort((a, b) => engagement(b) - engagement(a))[0];
 
-  if (scope === "current" && scopedAnalytics.length === 0 && totalAnalyticsEntries.length > 0) {
+  if (isNicheScoped && scopedAnalytics.length === 0 && totalAnalyticsEntries.length > 0) {
     performance.push(
       recommendation(
         `${profile?.sub_niche ?? profile?.niche ?? "Current niche"} has no assigned analytics yet.`,
@@ -465,7 +478,7 @@ export function buildRecommendationInsights({
       performance.push(
         recommendation(
           `${bestPlatformByViews.platform} is currently strongest by views.`,
-          `Based on ${scope === "current" ? "assigned posts for this niche" : "your manually tracked posts"}, ${bestPlatformByViews.platform} has ${bestPlatformByViews.views.toLocaleString()} tracked views across ${plural(bestPlatformByViews.posts, "post")}.`,
+          `Based on ${isNicheScoped ? "assigned posts for this niche" : "your manually tracked posts"}, ${bestPlatformByViews.platform} has ${bestPlatformByViews.views.toLocaleString()} tracked views across ${plural(bestPlatformByViews.posts, "post")}.`,
           "Medium",
           "Platform",
           "Go to Analytics",
@@ -478,7 +491,7 @@ export function buildRecommendationInsights({
       performance.push(
         recommendation(
           `${bestPlatformByEngagement.platform} has your strongest average engagement.`,
-          `Based on ${scope === "current" ? "assigned posts for this niche" : "your manually tracked posts"}, average engagement is ${Math.round(bestPlatformByEngagement.averageEngagement).toLocaleString()} actions per tracked post.`,
+          `Based on ${isNicheScoped ? "assigned posts for this niche" : "your manually tracked posts"}, average engagement is ${Math.round(bestPlatformByEngagement.averageEngagement).toLocaleString()} actions per tracked post.`,
           "Medium",
           "Analytics",
           "Go to Analytics",
@@ -581,7 +594,7 @@ export function buildRecommendationInsights({
     );
   }
 
-  if (scopedIdeas.length === 0 && profile?.niche) {
+  if (scopedIdeas.length === 0 && profile?.niche && scope !== "unlinked") {
     contentGaps.push(
       recommendation(
         `No saved ideas for ${profile.sub_niche ?? profile.niche} yet.`,

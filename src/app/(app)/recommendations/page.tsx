@@ -129,13 +129,47 @@ function StatCard({ label, value }: { label: string; value: string | number }) {
   );
 }
 
+type DirectionOption = {
+  key: string;
+  label: string;
+  niche: string;
+  subNiche: string | null;
+  sourceCount: number;
+};
+
+function directionKey(niche: string, subNiche: string | null) {
+  return `${encodeURIComponent(niche)}::${encodeURIComponent(subNiche ?? "")}`;
+}
+
+function addDirection(
+  directions: Map<string, DirectionOption>,
+  niche: string | null,
+  subNiche: string | null,
+) {
+  if (!niche) {
+    return;
+  }
+
+  const key = directionKey(niche, subNiche);
+  const current = directions.get(key);
+
+  directions.set(key, {
+    key,
+    label: `${niche} / ${subNiche ?? "General"}`,
+    niche,
+    subNiche,
+    sourceCount: (current?.sourceCount ?? 0) + 1,
+  });
+}
+
 export default async function RecommendationsPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ scope?: string }>;
+  searchParams?: Promise<{ scope?: string; direction?: string }>;
 }) {
   const resolvedSearchParams = await searchParams;
-  const scope: RecommendationScope = resolvedSearchParams?.scope === "all" ? "all" : "current";
+  const requestedScope = resolvedSearchParams?.scope;
+  const requestedDirection = resolvedSearchParams?.direction;
   const supabase = await createClient();
   const {
     data: { user },
@@ -202,28 +236,61 @@ export default async function RecommendationsPage({
   }
 
   const profile = (profileResult.data ?? null) as CreatorProfileSummary | null;
+  const normalizedAnalyticsEntries = (analyticsResult.data ?? []).map((entry) => ({
+    id: entry.id ?? "",
+    content_idea_id: entry.content_idea_id ?? null,
+    platform: entry.platform ?? null,
+    post_title: entry.post_title ?? null,
+    niche: entry.niche ?? null,
+    sub_niche: entry.sub_niche ?? null,
+    views: entry.views ?? 0,
+    likes: entry.likes ?? 0,
+    comments: entry.comments ?? 0,
+    shares: entry.shares ?? 0,
+    saves: entry.saves ?? 0,
+    reach: entry.reach ?? 0,
+    follows_gained: entry.follows_gained ?? 0,
+    posted_at: entry.posted_at ?? null,
+    created_at: entry.created_at ?? null,
+  }));
+  const directionsByKey = new Map<string, DirectionOption>();
+
+  addDirection(directionsByKey, profile?.niche ?? null, profile?.sub_niche ?? null);
+  (ideasResult.data ?? []).forEach((idea) =>
+    addDirection(directionsByKey, idea.niche ?? null, idea.sub_niche ?? null),
+  );
+  normalizedAnalyticsEntries.forEach((entry) =>
+    addDirection(directionsByKey, entry.niche ?? null, entry.sub_niche ?? null),
+  );
+
+  const directionOptions = Array.from(directionsByKey.values()).sort((a, b) =>
+    a.label.localeCompare(b.label),
+  );
+  const selectedDirection = requestedDirection
+    ? directionsByKey.get(requestedDirection)
+    : undefined;
+  const scope: RecommendationScope =
+    requestedScope === "all"
+      ? "all"
+      : requestedScope === "unlinked"
+        ? "unlinked"
+        : requestedScope === "direction" && selectedDirection
+          ? "selected"
+          : "current";
+  const activeProfile: CreatorProfileSummary | null =
+    scope === "selected" && selectedDirection
+      ? {
+          niche: selectedDirection.niche,
+          sub_niche: selectedDirection.subNiche,
+          selected_creators: profile?.selected_creators ?? [],
+        }
+      : profile;
   const insights = buildRecommendationInsights({
-    profile,
+    profile: activeProfile,
     ideas: (ideasResult.data ?? []) as RecommendationIdea[],
     captions: (captionsResult.data ?? []) as RecommendationCaption[],
     calendarEntries: (calendarResult.data ?? []) as RecommendationCalendarEntry[],
-    analyticsEntries: (analyticsResult.data ?? []).map((entry) => ({
-      id: entry.id ?? "",
-      content_idea_id: entry.content_idea_id ?? null,
-      platform: entry.platform ?? null,
-      post_title: entry.post_title ?? null,
-      niche: entry.niche ?? null,
-      sub_niche: entry.sub_niche ?? null,
-      views: entry.views ?? 0,
-      likes: entry.likes ?? 0,
-      comments: entry.comments ?? 0,
-      shares: entry.shares ?? 0,
-      saves: entry.saves ?? 0,
-      reach: entry.reach ?? 0,
-      follows_gained: entry.follows_gained ?? 0,
-      posted_at: entry.posted_at ?? null,
-      created_at: entry.created_at ?? null,
-    })),
+    analyticsEntries: normalizedAnalyticsEntries,
     scope,
   });
   const hasAnyData =
@@ -246,17 +313,61 @@ export default async function RecommendationsPage({
         </p>
       </div>
 
-      <div className="mb-6 flex flex-wrap items-center gap-2">
-        <Button asChild size="sm" variant={scope === "current" ? "default" : "secondary"}>
-          <Link href="/recommendations">Current niche</Link>
-        </Button>
-        <Button asChild size="sm" variant={scope === "all" ? "default" : "secondary"}>
-          <Link href="/recommendations?scope=all">All niches</Link>
-        </Button>
+      <div className="mb-6 rounded-lg border border-white/10 bg-white/[0.025] p-4">
+        <p className="text-sm font-medium text-white">Recommendation scope</p>
+        <p className="mt-1 text-sm leading-6 text-zinc-500">
+          Use scopes when you manage multiple creator pages, brands, or content directions.
+        </p>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <Button asChild size="sm" variant={scope === "current" ? "default" : "secondary"}>
+            <Link href="/recommendations">Current niche</Link>
+          </Button>
+          <Button asChild size="sm" variant={scope === "all" ? "default" : "secondary"}>
+            <Link href="/recommendations?scope=all">All niches</Link>
+          </Button>
+          <Button asChild size="sm" variant={scope === "unlinked" ? "default" : "secondary"}>
+            <Link href="/recommendations?scope=unlinked">Unlinked analytics</Link>
+          </Button>
+        </div>
+        {directionOptions.length > 1 ? (
+          <form
+            action="/recommendations"
+            className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-end"
+          >
+            <input name="scope" type="hidden" value="direction" />
+            <label className="flex-1 text-xs font-medium text-zinc-500">
+              Choose niche / direction
+              <select
+                className="mt-1 h-11 w-full rounded-md border border-white/10 bg-zinc-950 px-3 text-sm text-zinc-100"
+                defaultValue={
+                  scope === "selected" && selectedDirection ? selectedDirection.key : ""
+                }
+                name="direction"
+              >
+                <option value="" disabled>
+                  Select a content direction
+                </option>
+                {directionOptions.map((direction) => (
+                  <option key={direction.key} value={direction.key}>
+                    {direction.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Button type="submit" variant="secondary">
+              View direction
+              <ArrowRight />
+            </Button>
+          </form>
+        ) : null}
         <span className="text-sm text-zinc-500">
           {scope === "current"
             ? `Focused on ${profile?.niche ?? "your current niche"}${profile?.sub_niche ? ` / ${profile.sub_niche}` : ""}.`
-            : "All niches overview. Niche groups and unlinked analytics stay separated."}
+            : scope === "selected" && selectedDirection
+              ? `Viewing ${selectedDirection.label} recommendations.`
+              : scope === "unlinked"
+                ? "Viewing unlinked analytics that need assignment."
+                : "Viewing all niches grouped by content direction."}
         </span>
       </div>
 
@@ -352,14 +463,24 @@ export default async function RecommendationsPage({
         <StatCard label="Saved captions" value={insights.counts.captions} />
         <StatCard label="This week" value={insights.counts.scheduledThisWeek} />
         <StatCard
-          label={scope === "current" ? "Assigned analytics" : "Analytics"}
-          value={scope === "current" ? insights.counts.currentNicheAnalyticsEntries : insights.counts.analyticsEntries}
+          label={
+            scope === "current" || scope === "selected"
+              ? "Assigned analytics"
+              : scope === "unlinked"
+                ? "Unlinked analytics"
+                : "Analytics"
+          }
+          value={
+            scope === "current" || scope === "selected"
+              ? insights.counts.currentNicheAnalyticsEntries
+              : insights.counts.analyticsEntries
+          }
         />
         <StatCard label="Posted" value={insights.counts.postedEntries} />
         <StatCard label="Inspirations" value={insights.counts.inspirationCount} />
       </div>
 
-      {scope === "current" &&
+      {(scope === "current" || scope === "selected") &&
       insights.counts.analyticsEntries > 0 &&
       insights.counts.currentNicheAnalyticsEntries === 0 ? (
         <div className="mt-5 rounded-lg border border-emerald-300/15 bg-emerald-400/[0.06] p-4 text-sm leading-6 text-emerald-100">
