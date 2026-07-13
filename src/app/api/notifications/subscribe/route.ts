@@ -92,5 +92,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Subscription could not be saved" }, { status: 500 });
   }
 
+  const { error: preferencesError } = await supabase.from("notification_preferences").insert({
+    user_id: user.id,
+    calendar_reminders_enabled: true,
+    reminder_minutes_before: 60,
+    workflow_reminders_enabled: true,
+    weekly_summary_enabled: false,
+  });
+
+  if (preferencesError && preferencesError.code !== "23505") {
+    console.error("Default notification preferences create failed:", preferencesError.message);
+  }
+
   return NextResponse.json({ ok: true });
 }

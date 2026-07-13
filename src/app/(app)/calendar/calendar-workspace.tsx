@@ -169,6 +169,27 @@ function mergeEntries(current: CalendarEntryPayload[], incoming: CalendarEntryPa
   return next.sort(compareEntries);
 }
 
+function replaceEntry(
+  current: CalendarEntryPayload[],
+  updatedEntry: CalendarEntryPayload,
+) {
+  let replaced = false;
+  const next = current.map((entry) => {
+    if (entry.id !== updatedEntry.id) {
+      return entry;
+    }
+
+    replaced = true;
+    return updatedEntry;
+  });
+
+  if (!replaced) {
+    next.push(updatedEntry);
+  }
+
+  return next.sort(compareEntries);
+}
+
 function compareEntries(a: CalendarEntryPayload, b: CalendarEntryPayload) {
   return `${a.scheduled_date ?? ""} ${a.scheduled_time ?? ""}`.localeCompare(
     `${b.scheduled_date ?? ""} ${b.scheduled_time ?? ""}`,
@@ -370,7 +391,9 @@ export function CalendarWorkspace({
 
     try {
       const formData = new FormData(event.currentTarget);
-      const nextState = editingEntryId
+      const activeEditingEntryId = editingEntryId;
+      const isEditing = Boolean(activeEditingEntryId);
+      const nextState = isEditing
         ? await updateCalendarEntry(actionState, formData)
         : await createCalendarEntry(actionState, formData);
 
@@ -381,11 +404,15 @@ export function CalendarWorkspace({
       }
 
       setEntries((current) =>
-        editingEntryId
-          ? current.map((entry) => (entry.id === nextState.entry!.id ? nextState.entry! : entry))
+        isEditing
+          ? replaceEntry(current, nextState.entry!)
           : mergeEntries(current, [nextState.entry!]),
       );
-      if (!editingEntryId) {
+      if (nextState.entry.scheduled_date) {
+        setWeekStart(startOfWeek(parseLocalDate(nextState.entry.scheduled_date)));
+      }
+      setSelectedEntryId(null);
+      if (!isEditing) {
         setShowPostSaveNotificationPrompt(true);
       }
       resetForm();

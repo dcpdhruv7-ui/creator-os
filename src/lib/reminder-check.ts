@@ -33,6 +33,11 @@ type NotificationLog = {
   scheduled_for: string | null;
 };
 
+const defaultReminderPreference = {
+  calendar_reminders_enabled: true,
+  reminder_minutes_before: 60,
+};
+
 function logKey(entryId: string, scheduledFor: string) {
   return `${entryId}:${scheduledFor}`;
 }
@@ -71,68 +76,112 @@ export async function checkCalendarReminders({
   userId?: string;
 }) {
   const timeZone = process.env.CREATOR_OS_TIME_ZONE?.trim() || DEFAULT_REMINDER_TIME_ZONE;
-  let preferencesQuery = supabase
-    .from("notification_preferences")
-    .select("user_id, calendar_reminders_enabled, reminder_minutes_before")
-    .eq("calendar_reminders_enabled", true);
+  let subscriptionsQuery = supabase
+    .from("push_subscriptions")
+    .select("id, user_id, endpoint, p256dh, auth")
+    .eq("enabled", true);
 
   if (userId) {
-    preferencesQuery = preferencesQuery.eq("user_id", userId);
+    subscriptionsQuery = subscriptionsQuery.eq("user_id", userId);
   }
 
-  const { data: preferences, error: preferencesError } = await preferencesQuery;
+  const { data: subscriptions, error: subscriptionsError } = await subscriptionsQuery;
+
+  if (subscriptionsError) {
+    console.error("Notification subscription lookup failed:", subscriptionsError.message);
+    return { ok: false as const, error: "Notification devices could not be loaded" };
+  }
+
+  const subscriptionRows = (subscriptions ?? []) as Array<PushSubscriptionRow & { user_id: string }>;
+  const userIds = [...new Set(subscriptionRows.map((subscription) => subscription.user_id))];
+
+  if (userIds.length === 0) {
+    return {
+      ok: true as const,
+      checked: 0,
+      sent: 0,
+      skippedDuplicates: 0,
+      upcoming: 0,
+      due: 0,
+      pastReminderCount: 0,
+      reason: "no_devices" as const,
+    };
+  }
+
+  const { data: preferences, error: preferencesError } = await supabase
+    .from("notification_preferences")
+    .select("user_id, calendar_reminders_enabled, reminder_minutes_before")
+    .in("user_id", userIds);
 
   if (preferencesError) {
     console.error("Notification reminder preference lookup failed:", preferencesError.message);
     return { ok: false as const, error: "Reminder preferences could not be loaded" };
   }
 
-  const activePreferences = (preferences ?? []) as NotificationPreference[];
+  const preferencesByUser = new Map(
+    ((preferences ?? []) as NotificationPreference[]).map((preference) => [
+      preference.user_id,
+      preference,
+    ]),
+  );
+
+  const activePreferences = userIds
+    .map((id) => ({
+      user_id: id,
+      calendar_reminders_enabled:
+        preferencesByUser.get(id)?.calendar_reminders_enabled ??
+        defaultReminderPreference.calendar_reminders_enabled,
+      reminder_minutes_before:
+        preferencesByUser.get(id)?.reminder_minutes_before ??
+        defaultReminderPreference.reminder_minutes_before,
+    }))
+    .filter((preference) => preference.calendar_reminders_enabled);
 
   if (activePreferences.length === 0) {
-    return { ok: true as const, checked: 0, sent: 0, skippedDuplicates: 0 };
+    return {
+      ok: true as const,
+      checked: 0,
+      sent: 0,
+      skippedDuplicates: 0,
+      upcoming: 0,
+      due: 0,
+      pastReminderCount: 0,
+      reason: "calendar_off" as const,
+    };
   }
 
-  const userIds = activePreferences.map((preference) => preference.user_id);
+  const activeUserIds = activePreferences.map((preference) => preference.user_id);
   const startDate = dateValueInTimeZone(addMinutes(now, -REMINDER_LOOKBACK_MINUTES), timeZone);
   const endDate = dateValueInTimeZone(addMinutes(now, 1440), timeZone);
-  const [calendarResult, subscriptionsResult, logsResult] = await Promise.all([
+  const [calendarResult, logsResult] = await Promise.all([
     supabase
       .from("content_calendar")
       .select("id, user_id, title, platform, scheduled_date, scheduled_time, status")
-      .in("user_id", userIds)
+      .in("user_id", activeUserIds)
       .gte("scheduled_date", startDate)
       .lte("scheduled_date", endDate)
       .neq("status", "Posted"),
     supabase
-      .from("push_subscriptions")
-      .select("id, user_id, endpoint, p256dh, auth")
-      .in("user_id", userIds)
-      .eq("enabled", true),
-    supabase
       .from("notification_logs")
       .select("related_id, scheduled_for")
-      .in("user_id", userIds)
+      .in("user_id", activeUserIds)
       .eq("notification_type", "calendar_reminder"),
   ]);
 
-  if (calendarResult.error || subscriptionsResult.error || logsResult.error) {
+  if (calendarResult.error || logsResult.error) {
     console.error(
       "Notification reminder data lookup failed:",
-      calendarResult.error?.message ??
-        subscriptionsResult.error?.message ??
-        logsResult.error?.message,
+      calendarResult.error?.message ?? logsResult.error?.message,
     );
     return { ok: false as const, error: "Reminder data could not be loaded" };
   }
 
   const subscriptionsByUser = new Map<string, PushSubscriptionRow[]>();
 
-  (subscriptionsResult.data ?? []).forEach((subscription) => {
-    const row = subscription as PushSubscriptionRow & { user_id: string };
-    const current = subscriptionsByUser.get(row.user_id) ?? [];
-    current.push(row);
-    subscriptionsByUser.set(row.user_id, current);
+  subscriptionRows.forEach((subscription) => {
+    const current = subscriptionsByUser.get(subscription.user_id) ?? [];
+    current.push(subscription);
+    subscriptionsByUser.set(subscription.user_id, current);
   });
 
   const loggedReminders = new Set(
@@ -144,6 +193,9 @@ export async function checkCalendarReminders({
   let checked = 0;
   let sent = 0;
   let skippedDuplicates = 0;
+  let upcoming = 0;
+  let due = 0;
+  let pastReminderCount = 0;
 
   for (const preference of activePreferences) {
     const reminderMinutes = preference.reminder_minutes_before ?? 60;
@@ -169,6 +221,8 @@ export async function checkCalendarReminders({
         continue;
       }
 
+      upcoming += 1;
+
       if (
         !isDueReminder({
           now,
@@ -177,10 +231,14 @@ export async function checkCalendarReminders({
           scheduledAt: reminder.scheduledAt,
         })
       ) {
+        if (reminder.reminderAt < addMinutes(now, -REMINDER_LOOKBACK_MINUTES)) {
+          pastReminderCount += 1;
+        }
         continue;
       }
 
       checked += 1;
+      due += 1;
 
       const scheduledFor = reminder.scheduledAt.toISOString();
 
@@ -223,5 +281,21 @@ export async function checkCalendarReminders({
     }
   }
 
-  return { ok: true as const, checked, sent, skippedDuplicates };
+  return {
+    ok: true as const,
+    checked,
+    sent,
+    skippedDuplicates,
+    upcoming,
+    due,
+    pastReminderCount,
+    reason:
+      sent > 0
+        ? ("sent" as const)
+        : due > 0
+          ? ("duplicate_or_failed" as const)
+          : upcoming > 0
+            ? ("no_due" as const)
+            : ("no_upcoming" as const),
+  };
 }

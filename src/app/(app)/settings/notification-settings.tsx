@@ -34,6 +34,15 @@ type NotificationDevice = {
   last_used_at: string | null;
 };
 
+type ReminderDiagnostics = {
+  calendarRemindersEnabled: boolean;
+  reminderMinutesBefore: number;
+  activeDevicesCount: number;
+  upcomingCalendarPostsCount: number;
+  nextReminderTime: string | null;
+  lastReminderSent: string | null;
+};
+
 const defaultPreferences: NotificationPreferences = {
   calendar_reminders_enabled: true,
   reminder_minutes_before: 60,
@@ -65,6 +74,7 @@ export function NotificationSettings({
   const [isSavingPreferences, setIsSavingPreferences] = useState(false);
   const [preferences, setPreferences] = useState(defaultPreferences);
   const [devices, setDevices] = useState<NotificationDevice[]>([]);
+  const [diagnostics, setDiagnostics] = useState<ReminderDiagnostics | null>(null);
   const [currentEndpoint, setCurrentEndpoint] = useState("");
   const [setupNeeded, setSetupNeeded] = useState(false);
   const [message, setMessage] = useState("");
@@ -95,6 +105,7 @@ export function NotificationSettings({
 
   useEffect(() => {
     refreshDevices();
+    refreshDiagnostics();
 
     fetch("/api/notifications/preferences")
       .then((response) => response.json())
@@ -121,6 +132,19 @@ export function NotificationSettings({
       }
     } catch {
       setDevices([]);
+    }
+  }
+
+  async function refreshDiagnostics() {
+    try {
+      const response = await fetch("/api/notifications/diagnostics");
+      const data = await response.json();
+
+      if (response.ok) {
+        setDiagnostics(data);
+      }
+    } catch {
+      setDiagnostics(null);
     }
   }
 
@@ -151,6 +175,7 @@ export function NotificationSettings({
 
       showMessage("Notification preferences saved.", "success");
       setSetupNeeded(false);
+      await refreshDiagnostics();
     } catch (error) {
       showMessage(error instanceof Error ? error.message : "Preferences could not be saved.", "error");
     } finally {
@@ -183,6 +208,7 @@ export function NotificationSettings({
       setIsSubscribed(true);
       setCurrentEndpoint(result.endpoint);
       await refreshDevices();
+      await refreshDiagnostics();
       showMessage("Notifications enabled for this device.", "success");
     } catch (error) {
       showMessage(error instanceof Error ? error.message : "Notifications could not be enabled.", "error");
@@ -211,6 +237,7 @@ export function NotificationSettings({
       setIsSubscribed(false);
       setCurrentEndpoint("");
       await refreshDevices();
+      await refreshDiagnostics();
       showMessage("Notifications disabled for this device.", "success");
     } catch (error) {
       showMessage(error instanceof Error ? error.message : "Notifications could not be disabled.", "error");
@@ -279,12 +306,28 @@ export function NotificationSettings({
         throw new Error(data.error ?? "Reminder check could not run.");
       }
 
-      showMessage(
-        data.sent > 0
-          ? `Checked upcoming reminders. Sent ${data.sent} reminder${data.sent === 1 ? "" : "s"}.`
-          : "No reminders are due yet.",
-        "success",
-      );
+      const checked = Number(data.checked ?? 0);
+      const sent = Number(data.sent ?? 0);
+      const upcoming = Number(data.upcoming ?? 0);
+      const pastReminderCount = Number(data.pastReminderCount ?? 0);
+
+      if (data.reason === "no_devices") {
+        showMessage("No enabled devices found.", "info");
+      } else if (data.reason === "calendar_off") {
+        showMessage("Calendar reminders are off.", "info");
+      } else if (sent > 0) {
+        showMessage(
+          `Checked ${upcoming || checked} upcoming post${(upcoming || checked) === 1 ? "" : "s"}. Sent ${sent} reminder${sent === 1 ? "" : "s"}.`,
+          "success",
+        );
+      } else if (pastReminderCount > 0 && upcoming > 0) {
+        showMessage("Reminder time already passed for the next upcoming post.", "info");
+      } else if (upcoming > 0) {
+        showMessage("No reminders due yet.", "info");
+      } else {
+        showMessage("No upcoming scheduled posts found.", "info");
+      }
+      await refreshDiagnostics();
     } catch (error) {
       showMessage(error instanceof Error ? error.message : "Reminder check could not run.", "error");
     } finally {
@@ -359,11 +402,7 @@ export function NotificationSettings({
                   Send test to all devices
                 </Button>
                 <Button
-                  disabled={
-                    isCheckingReminders ||
-                    devices.filter((device) => device.enabled).length === 0 ||
-                    !preferences.calendar_reminders_enabled
-                  }
+                  disabled={isCheckingReminders}
                   onClick={checkUpcomingReminders}
                   type="button"
                   variant="secondary"
@@ -373,7 +412,7 @@ export function NotificationSettings({
                   ) : (
                     <CalendarDays />
                   )}
-                  Check upcoming reminders
+                  Check reminders now
                 </Button>
                 <Button
                   disabled={isBusy || !isSubscribed}
@@ -408,6 +447,65 @@ export function NotificationSettings({
               {message}
             </div>
           ) : null}
+
+          <div className="rounded-lg border border-white/10 bg-zinc-950/70 p-4">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-white">Reminder diagnostics</p>
+                <p className="mt-1 text-sm text-zinc-500">
+                  A safe check of your reminder setup without exposing any keys.
+                </p>
+              </div>
+              <Button onClick={refreshDiagnostics} size="sm" type="button" variant="secondary">
+                Refresh
+              </Button>
+            </div>
+            <dl className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-md border border-white/10 bg-white/[0.025] p-3">
+                <dt className="text-xs text-zinc-500">Calendar reminders</dt>
+                <dd className="mt-1 text-sm font-medium text-zinc-100">
+                  {(diagnostics?.calendarRemindersEnabled ?? preferences.calendar_reminders_enabled)
+                    ? "Enabled"
+                    : "Off"}
+                </dd>
+              </div>
+              <div className="rounded-md border border-white/10 bg-white/[0.025] p-3">
+                <dt className="text-xs text-zinc-500">Reminder timing</dt>
+                <dd className="mt-1 text-sm font-medium text-zinc-100">
+                  {reminderOptions.find(
+                    (option) =>
+                      option.value ===
+                      (diagnostics?.reminderMinutesBefore ?? preferences.reminder_minutes_before),
+                  )?.label ?? `${preferences.reminder_minutes_before} minutes before`}
+                </dd>
+              </div>
+              <div className="rounded-md border border-white/10 bg-white/[0.025] p-3">
+                <dt className="text-xs text-zinc-500">Active devices</dt>
+                <dd className="mt-1 text-sm font-medium text-zinc-100">
+                  {diagnostics?.activeDevicesCount ??
+                    devices.filter((device) => device.enabled).length}
+                </dd>
+              </div>
+              <div className="rounded-md border border-white/10 bg-white/[0.025] p-3">
+                <dt className="text-xs text-zinc-500">Upcoming posts</dt>
+                <dd className="mt-1 text-sm font-medium text-zinc-100">
+                  {diagnostics?.upcomingCalendarPostsCount ?? "Not checked"}
+                </dd>
+              </div>
+              <div className="rounded-md border border-white/10 bg-white/[0.025] p-3">
+                <dt className="text-xs text-zinc-500">Next reminder</dt>
+                <dd className="mt-1 text-sm font-medium text-zinc-100">
+                  {diagnostics?.nextReminderTime ?? "None scheduled"}
+                </dd>
+              </div>
+              <div className="rounded-md border border-white/10 bg-white/[0.025] p-3">
+                <dt className="text-xs text-zinc-500">Last reminder sent</dt>
+                <dd className="mt-1 text-sm font-medium text-zinc-100">
+                  {diagnostics?.lastReminderSent ?? "No reminder sent yet"}
+                </dd>
+              </div>
+            </dl>
+          </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="flex items-start gap-3 rounded-lg border border-white/10 bg-zinc-950/70 p-4 text-sm text-zinc-300">
