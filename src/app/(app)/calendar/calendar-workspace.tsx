@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 
+import { NotificationOptInCard } from "@/components/notification-opt-in-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { parseCalendarNotes } from "@/lib/calendar-notes";
@@ -68,6 +69,8 @@ type CalendarWorkspaceProps = {
   currentNiche: string | null;
   currentSubNiche: string | null;
   initialEntries: CalendarEntryPayload[];
+  pushConfigured: boolean;
+  vapidPublicKey: string;
 };
 
 const initialActionState: CalendarActionState = { status: "idle", message: "" };
@@ -219,6 +222,8 @@ export function CalendarWorkspace({
   currentNiche,
   currentSubNiche,
   initialEntries,
+  pushConfigured,
+  vapidPublicKey,
 }: CalendarWorkspaceProps) {
   const todayValue = toDateInputValue(new Date());
   const currentNicheIdeas = ideas.filter((idea) =>
@@ -248,6 +253,7 @@ export function CalendarWorkspace({
   const [suggestedPlan, setSuggestedPlan] = useState<SuggestedPost[]>([]);
   const [isSavingPlan, setIsSavingPlan] = useState(false);
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
+  const [showPostSaveNotificationPrompt, setShowPostSaveNotificationPrompt] = useState(false);
 
   const selectedIdeaCaptions = useMemo(
     () => captionsForIdea(captions, selectedIdeaId),
@@ -273,6 +279,9 @@ export function CalendarWorkspace({
   const selectedEntry = useMemo(
     () => entries.find((entry) => entry.id === selectedEntryId) ?? null,
     [entries, selectedEntryId],
+  );
+  const hasUpcomingEntries = entries.some(
+    (entry) => entry.scheduled_date && entry.scheduled_date >= todayValue,
   );
 
   function resetForm() {
@@ -321,6 +330,9 @@ export function CalendarWorkspace({
           ? current.map((entry) => (entry.id === nextState.entry!.id ? nextState.entry! : entry))
           : mergeEntries(current, [nextState.entry!]),
       );
+      if (!editingEntryId) {
+        setShowPostSaveNotificationPrompt(true);
+      }
       resetForm();
     } finally {
       setIsSaving(false);
@@ -441,6 +453,7 @@ export function CalendarWorkspace({
       if (nextState.status === "success" && nextState.entries?.length) {
         setEntries((current) => mergeEntries(current, nextState.entries ?? []));
         setSuggestedPlan([]);
+        setShowPostSaveNotificationPrompt(true);
       }
     } finally {
       setIsSavingPlan(false);
@@ -482,6 +495,13 @@ export function CalendarWorkspace({
 
   return (
     <div className="space-y-8">
+      {hasUpcomingEntries || showPostSaveNotificationPrompt ? (
+        <NotificationOptInCard
+          pushConfigured={pushConfigured}
+          vapidPublicKey={vapidPublicKey}
+        />
+      ) : null}
+
       <div className="grid gap-5 xl:grid-cols-[0.95fr_1.4fr]">
         <section className="space-y-5">
           <Card className="border-emerald-300/20">

@@ -10,8 +10,10 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
+import { NotificationOptInCard } from "@/components/notification-opt-in-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { getVapidPublicKey, hasPushConfig } from "@/lib/notifications";
 import {
   buildRecommendationInsights,
   type RecommendationAnalyticsEntry,
@@ -189,6 +191,12 @@ export default async function DashboardPage() {
           Build your creator strategy one focused layer at a time.
         </p>
       </div>
+
+      <NotificationOptInCard
+        className="mb-6"
+        pushConfigured={hasPushConfig()}
+        vapidPublicKey={getVapidPublicKey()}
+      />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <Card className="min-h-48 border-emerald-300/20">

@@ -4,6 +4,7 @@ import { AlertCircle, ArrowRight, Lightbulb } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/server";
+import { getVapidPublicKey, hasPushConfig } from "@/lib/notifications";
 import {
   CalendarWorkspace,
   type CalendarCaption,
@@ -99,6 +100,8 @@ export default async function CalendarPage() {
         currentSubNiche={profileResult.data?.sub_niche ?? null}
         ideas={ideas}
         initialEntries={(calendarResult.data ?? []) as CalendarEntryPayload[]}
+        pushConfigured={hasPushConfig()}
+        vapidPublicKey={getVapidPublicKey()}
       />
     </section>
   );

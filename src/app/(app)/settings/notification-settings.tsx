@@ -5,6 +5,12 @@ import { Bell, BellOff, LoaderCircle, Send, Smartphone } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  enablePushNotifications,
+  getActiveSubscription,
+  getNotificationPermission,
+  isWebPushSupported,
+} from "@/lib/notification-client";
 import { cn } from "@/lib/utils";
 
 type NotificationPreferences = {
@@ -43,44 +49,13 @@ const reminderOptions = [
   { label: "1 day before", value: 1440 },
 ];
 
-function urlBase64ToUint8Array(base64String: string) {
-  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = `${base64String}${padding}`.replace(/-/g, "+").replace(/_/g, "/");
-  const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-
-  for (let index = 0; index < rawData.length; index += 1) {
-    outputArray[index] = rawData.charCodeAt(index);
-  }
-
-  return outputArray;
-}
-
-async function getActiveSubscription() {
-  if (!("serviceWorker" in navigator)) {
-    return null;
-  }
-
-  const registration = await navigator.serviceWorker.getRegistration();
-
-  return registration?.pushManager.getSubscription() ?? null;
-}
-
 export function NotificationSettings({
   pushConfigured,
   vapidPublicKey,
 }: NotificationSettingsProps) {
-  const [isSupported] = useState(
-    () =>
-      typeof window !== "undefined" &&
-      "serviceWorker" in navigator &&
-      "PushManager" in window &&
-      "Notification" in window,
-  );
+  const [isSupported] = useState(() => isWebPushSupported());
   const [permission, setPermission] = useState<NotificationPermission>(() =>
-    typeof window !== "undefined" && "Notification" in window
-      ? Notification.permission
-      : "default",
+    getNotificationPermission(),
   );
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
@@ -196,37 +171,16 @@ export function NotificationSettings({
     setIsBusy(true);
 
     try {
-      const nextPermission = await Notification.requestPermission();
-      setPermission(nextPermission);
+      const result = await enablePushNotifications({ pushConfigured, vapidPublicKey });
+      setPermission(getNotificationPermission());
 
-      if (nextPermission !== "granted") {
-        showMessage("Notifications were not allowed in this browser.", "error");
+      if (result.status !== "enabled" && result.status !== "already-enabled") {
+        showMessage(result.message, "error");
         return;
       }
 
-      const registration = await navigator.serviceWorker.register("/sw.js");
-      let subscription = await registration.pushManager.getSubscription();
-
-      if (!subscription) {
-        subscription = await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
-        });
-      }
-
-      const response = await fetch("/api/notifications/subscribe", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(subscription.toJSON()),
-      });
-      const data = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        throw new Error(data.error ?? "Push subscription could not be saved.");
-      }
-
       setIsSubscribed(true);
-      setCurrentEndpoint(subscription.endpoint);
+      setCurrentEndpoint(result.endpoint);
       await refreshDevices();
       showMessage("Notifications enabled for this device.", "success");
     } catch (error) {
