@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Bell, BellOff, LoaderCircle, Send, Smartphone } from "lucide-react";
+import { Bell, BellOff, CalendarDays, LoaderCircle, Send, Smartphone } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -61,6 +61,7 @@ export function NotificationSettings({
   const [isBusy, setIsBusy] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [isTestingAll, setIsTestingAll] = useState(false);
+  const [isCheckingReminders, setIsCheckingReminders] = useState(false);
   const [isSavingPreferences, setIsSavingPreferences] = useState(false);
   const [preferences, setPreferences] = useState(defaultPreferences);
   const [devices, setDevices] = useState<NotificationDevice[]>([]);
@@ -265,6 +266,32 @@ export function NotificationSettings({
     }
   }
 
+  async function checkUpcomingReminders() {
+    setIsCheckingReminders(true);
+
+    try {
+      const response = await fetch("/api/notifications/check", {
+        method: "POST",
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(data.error ?? "Reminder check could not run.");
+      }
+
+      showMessage(
+        data.sent > 0
+          ? `Checked upcoming reminders. Sent ${data.sent} reminder${data.sent === 1 ? "" : "s"}.`
+          : "No reminders are due yet.",
+        "success",
+      );
+    } catch (error) {
+      showMessage(error instanceof Error ? error.message : "Reminder check could not run.", "error");
+    } finally {
+      setIsCheckingReminders(false);
+    }
+  }
+
   function formatDate(value: string | null) {
     if (!value) return "Not used yet";
 
@@ -330,6 +357,23 @@ export function NotificationSettings({
                 >
                   {isTestingAll ? <LoaderCircle className="animate-spin" /> : <Send />}
                   Send test to all devices
+                </Button>
+                <Button
+                  disabled={
+                    isCheckingReminders ||
+                    devices.filter((device) => device.enabled).length === 0 ||
+                    !preferences.calendar_reminders_enabled
+                  }
+                  onClick={checkUpcomingReminders}
+                  type="button"
+                  variant="secondary"
+                >
+                  {isCheckingReminders ? (
+                    <LoaderCircle className="animate-spin" />
+                  ) : (
+                    <CalendarDays />
+                  )}
+                  Check upcoming reminders
                 </Button>
                 <Button
                   disabled={isBusy || !isSubscribed}

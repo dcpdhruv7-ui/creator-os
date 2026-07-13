@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -19,6 +19,11 @@ import { NotificationOptInCard } from "@/components/notification-opt-in-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { parseCalendarNotes } from "@/lib/calendar-notes";
+import {
+  DEFAULT_REMINDER_TIME_ZONE,
+  formatReminderTime,
+  reminderTimeForPost,
+} from "@/lib/reminder-time";
 import { cn } from "@/lib/utils";
 import {
   createCalendarEntry,
@@ -52,6 +57,18 @@ export type CalendarCaption = {
   hashtags: string | null;
 };
 
+export type CalendarReminderPreferences = {
+  calendar_reminders_enabled: boolean;
+  reminder_minutes_before: number;
+};
+
+export type CalendarReminderLog = {
+  related_id: string | null;
+  scheduled_for: string | null;
+  status: string | null;
+  sent_at: string | null;
+};
+
 type SuggestedPost = {
   localId: string;
   ideaId: string;
@@ -71,6 +88,8 @@ type CalendarWorkspaceProps = {
   initialEntries: CalendarEntryPayload[];
   pushConfigured: boolean;
   vapidPublicKey: string;
+  reminderPreferences: CalendarReminderPreferences;
+  reminderLogs: CalendarReminderLog[];
 };
 
 const initialActionState: CalendarActionState = { status: "idle", message: "" };
@@ -224,10 +243,16 @@ export function CalendarWorkspace({
   initialEntries,
   pushConfigured,
   vapidPublicKey,
+  reminderPreferences,
+  reminderLogs,
 }: CalendarWorkspaceProps) {
   const todayValue = toDateInputValue(new Date());
-  const currentNicheIdeas = ideas.filter((idea) =>
-    ideaMatchesCurrentNiche(idea, currentNiche, currentSubNiche),
+  const currentNicheIdeas = useMemo(
+    () =>
+      ideas.filter((idea) =>
+        ideaMatchesCurrentNiche(idea, currentNiche, currentSubNiche),
+      ),
+    [currentNiche, currentSubNiche, ideas],
   );
   const [showAllIdeaNiches, setShowAllIdeaNiches] = useState(false);
   const visibleIdeaOptions = showAllIdeaNiches ? ideas : currentNicheIdeas;
@@ -295,6 +320,36 @@ export function CalendarWorkspace({
     setStatus("Planned");
     setNotes("");
   }
+
+  useEffect(() => {
+    if (!editingEntryId) {
+      return;
+    }
+
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setEditingEntryId(null);
+        setShowAllIdeaNiches(false);
+        setSelectedIdeaId(currentNicheIdeas[0]?.id ?? ideas[0]?.id ?? "");
+        setSelectedCaptionId("");
+        setScheduledDate(todayValue);
+        setScheduledTime("09:00");
+        setPlatform("Instagram");
+        setStatus("Planned");
+        setNotes("");
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [currentNicheIdeas, editingEntryId, ideas, todayValue]);
 
   function entryCaptionId(entry: CalendarEntryPayload) {
     return parseCalendarNotes(entry.notes).captionId;
@@ -493,6 +548,76 @@ export function CalendarWorkspace({
     );
   }
 
+  function reminderTimingLabel(minutes: number) {
+    if (minutes === 15) return "15 minutes before";
+    if (minutes === 30) return "30 minutes before";
+    if (minutes === 60) return "1 hour before";
+    if (minutes === 120) return "2 hours before";
+    if (minutes === 1440) return "1 day before";
+
+    return `${minutes} minutes before`;
+  }
+
+  function reminderStatus(entry: CalendarEntryPayload) {
+    if (!reminderPreferences.calendar_reminders_enabled) {
+      return {
+        title: "Calendar reminders are off",
+        detail: "Turn them on in Settings to get scheduled post reminders.",
+        tone: "zinc" as const,
+      };
+    }
+
+    const reminder = reminderTimeForPost(
+      entry.scheduled_date,
+      entry.scheduled_time,
+      reminderPreferences.reminder_minutes_before,
+      DEFAULT_REMINDER_TIME_ZONE,
+    );
+
+    if (!reminder) {
+      return {
+        title: `Reminder: ${reminderTimingLabel(reminderPreferences.reminder_minutes_before)}`,
+        detail: "Add a date and time to schedule a reminder.",
+        tone: "zinc" as const,
+      };
+    }
+
+    const scheduledFor = reminder.scheduledAt.toISOString();
+    const sentLog = reminderLogs.find(
+      (log) =>
+        log.related_id === entry.id &&
+        log.scheduled_for === scheduledFor &&
+        log.status === "sent",
+    );
+
+    if (sentLog) {
+      return {
+        title: "Reminder sent",
+        detail: sentLog.sent_at
+          ? `Sent ${formatReminderTime(new Date(sentLog.sent_at), DEFAULT_REMINDER_TIME_ZONE)}.`
+          : "This reminder has already been sent.",
+        tone: "emerald" as const,
+      };
+    }
+
+    if (reminder.reminderAt < new Date()) {
+      return {
+        title: `Reminder: ${reminderTimingLabel(reminderPreferences.reminder_minutes_before)}`,
+        detail: "Reminder time has already passed.",
+        tone: "zinc" as const,
+      };
+    }
+
+    return {
+      title: `Reminder: ${reminderTimingLabel(reminderPreferences.reminder_minutes_before)}`,
+      detail: `Reminder scheduled for ${formatReminderTime(
+        reminder.reminderAt,
+        DEFAULT_REMINDER_TIME_ZONE,
+      )}.`,
+      tone: "emerald" as const,
+    };
+  }
+
   return (
     <div className="space-y-8">
       {hasUpcomingEntries || showPostSaveNotificationPrompt ? (
@@ -504,6 +629,19 @@ export function CalendarWorkspace({
 
       <div className="grid gap-5 xl:grid-cols-[0.95fr_1.4fr]">
         <section className="space-y-5">
+          <div
+            className={cn(
+              editingEntryId &&
+                "fixed inset-0 z-50 flex items-end bg-black/70 p-3 backdrop-blur-sm sm:items-center sm:justify-center",
+            )}
+            onClick={editingEntryId ? resetForm : undefined}
+          >
+            <div
+              className={cn(
+                editingEntryId && "max-h-[92dvh] w-full overflow-y-auto sm:max-w-2xl",
+              )}
+              onClick={(event) => event.stopPropagation()}
+            >
           <Card className="border-emerald-300/20">
             <CardHeader>
               <div className="flex items-center gap-3">
@@ -725,6 +863,8 @@ export function CalendarWorkspace({
               </form>
             </CardContent>
           </Card>
+            </div>
+          </div>
 
           <Card>
             <CardHeader>
@@ -957,6 +1097,7 @@ export function CalendarWorkspace({
               const idea = ideaMap.get(selectedEntry.content_idea_id ?? "");
               const caption = captionMap.get(entryCaptionId(selectedEntry) ?? "");
               const notes = entryNotes(selectedEntry);
+              const reminder = reminderStatus(selectedEntry);
 
               return (
                 <div className="space-y-5">
@@ -996,6 +1137,18 @@ export function CalendarWorkspace({
                     <DetailItem label="Time" value={timeLabel(selectedEntry.scheduled_time)} />
                     <DetailItem label="Status" value={selectedEntry.status ?? "Planned"} />
                     <DetailItem label="Priority" value={idea?.priority ?? "Medium"} />
+                  </div>
+
+                  <div
+                    className={cn(
+                      "rounded-lg border p-4",
+                      reminder.tone === "emerald"
+                        ? "border-emerald-300/20 bg-emerald-400/[0.06] text-emerald-100"
+                        : "border-white/10 bg-white/[0.025] text-zinc-300",
+                    )}
+                  >
+                    <p className="text-sm font-medium">{reminder.title}</p>
+                    <p className="mt-1 text-sm leading-6 opacity-80">{reminder.detail}</p>
                   </div>
 
                   <div className="rounded-lg border border-white/10 bg-white/[0.025] p-4">

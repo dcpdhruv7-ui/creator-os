@@ -9,6 +9,8 @@ import {
   CalendarWorkspace,
   type CalendarCaption,
   type CalendarIdea,
+  type CalendarReminderLog,
+  type CalendarReminderPreferences,
 } from "./calendar-workspace";
 import type { CalendarEntryPayload } from "./actions";
 
@@ -58,6 +60,23 @@ export default async function CalendarPage() {
   }
 
   const ideas = (ideasResult.data ?? []) as CalendarIdea[];
+  const [preferencesResult, logsResult] = await Promise.all([
+    supabase
+      .from("notification_preferences")
+      .select("calendar_reminders_enabled, reminder_minutes_before")
+      .eq("user_id", user!.id)
+      .maybeSingle(),
+    supabase
+      .from("notification_logs")
+      .select("related_id, scheduled_for, status, sent_at")
+      .eq("user_id", user!.id)
+      .eq("notification_type", "calendar_reminder"),
+  ]);
+  const reminderPreferences: CalendarReminderPreferences = {
+    calendar_reminders_enabled:
+      preferencesResult.data?.calendar_reminders_enabled ?? true,
+    reminder_minutes_before: preferencesResult.data?.reminder_minutes_before ?? 60,
+  };
 
   if (ideas.length === 0) {
     return (
@@ -101,6 +120,10 @@ export default async function CalendarPage() {
         ideas={ideas}
         initialEntries={(calendarResult.data ?? []) as CalendarEntryPayload[]}
         pushConfigured={hasPushConfig()}
+        reminderLogs={
+          logsResult.error ? [] : ((logsResult.data ?? []) as CalendarReminderLog[])
+        }
+        reminderPreferences={reminderPreferences}
         vapidPublicKey={getVapidPublicKey()}
       />
     </section>
