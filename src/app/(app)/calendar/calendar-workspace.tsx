@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -289,11 +289,21 @@ export function CalendarWorkspace({
   const [platform, setPlatform] = useState("Instagram");
   const [status, setStatus] = useState("Planned");
   const [notes, setNotes] = useState("");
-  const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
   const [actionState, setActionState] = useState(initialActionState);
+  const [editingEntry, setEditingEntry] = useState<CalendarEntryPayload | null>(null);
+  const [editShowAllIdeaNiches, setEditShowAllIdeaNiches] = useState(false);
+  const [editIdeaId, setEditIdeaId] = useState("");
+  const [editCaptionId, setEditCaptionId] = useState("");
+  const [editScheduledDate, setEditScheduledDate] = useState(todayValue);
+  const [editScheduledTime, setEditScheduledTime] = useState("09:00");
+  const [editPlatform, setEditPlatform] = useState("Instagram");
+  const [editStatus, setEditStatus] = useState("Planned");
+  const [editNotes, setEditNotes] = useState("");
+  const [editState, setEditState] = useState(initialActionState);
   const [deleteState, setDeleteState] = useState(initialActionState);
   const [planState, setPlanState] = useState(initialActionState);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [frequency, setFrequency] = useState(5);
   const [suggestedPlan, setSuggestedPlan] = useState<SuggestedPost[]>([]);
@@ -304,6 +314,14 @@ export function CalendarWorkspace({
   const selectedIdeaCaptions = useMemo(
     () => captionsForIdea(captions, selectedIdeaId),
     [captions, selectedIdeaId],
+  );
+  const editVisibleIdeaOptions = editShowAllIdeaNiches ? ideas : currentNicheIdeas;
+  const editGroupedIdeaOptions = editShowAllIdeaNiches
+    ? groupIdeasByNiche(editVisibleIdeaOptions)
+    : [];
+  const editIdeaCaptions = useMemo(
+    () => captionsForIdea(captions, editIdeaId),
+    [captions, editIdeaId],
   );
   const captionMap = useMemo(
     () => new Map(captions.map((caption) => [caption.id, caption])),
@@ -331,7 +349,6 @@ export function CalendarWorkspace({
   );
 
   function resetForm() {
-    setEditingEntryId(null);
     setShowAllIdeaNiches(false);
     setSelectedIdeaId(currentNicheIdeas[0]?.id ?? ideas[0]?.id ?? "");
     setSelectedCaptionId("");
@@ -342,8 +359,21 @@ export function CalendarWorkspace({
     setNotes("");
   }
 
+  const closeEditModal = useCallback(() => {
+    setEditingEntry(null);
+    setEditShowAllIdeaNiches(false);
+    setEditIdeaId("");
+    setEditCaptionId("");
+    setEditScheduledDate(todayValue);
+    setEditScheduledTime("09:00");
+    setEditPlatform("Instagram");
+    setEditStatus("Planned");
+    setEditNotes("");
+    setEditState(initialActionState);
+  }, [todayValue]);
+
   useEffect(() => {
-    if (!editingEntryId) {
+    if (!editingEntry) {
       return;
     }
 
@@ -352,15 +382,7 @@ export function CalendarWorkspace({
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
-        setEditingEntryId(null);
-        setShowAllIdeaNiches(false);
-        setSelectedIdeaId(currentNicheIdeas[0]?.id ?? ideas[0]?.id ?? "");
-        setSelectedCaptionId("");
-        setScheduledDate(todayValue);
-        setScheduledTime("09:00");
-        setPlatform("Instagram");
-        setStatus("Planned");
-        setNotes("");
+        closeEditModal();
       }
     }
 
@@ -370,7 +392,7 @@ export function CalendarWorkspace({
       document.body.style.overflow = originalOverflow;
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [currentNicheIdeas, editingEntryId, ideas, todayValue]);
+  }, [closeEditModal, editingEntry]);
 
   function entryCaptionId(entry: CalendarEntryPayload) {
     return parseCalendarNotes(entry.notes).captionId;
@@ -391,11 +413,7 @@ export function CalendarWorkspace({
 
     try {
       const formData = new FormData(event.currentTarget);
-      const activeEditingEntryId = editingEntryId;
-      const isEditing = Boolean(activeEditingEntryId);
-      const nextState = isEditing
-        ? await updateCalendarEntry(actionState, formData)
-        : await createCalendarEntry(actionState, formData);
+      const nextState = await createCalendarEntry(actionState, formData);
 
       setActionState(nextState);
 
@@ -404,20 +422,51 @@ export function CalendarWorkspace({
       }
 
       setEntries((current) =>
-        isEditing
-          ? replaceEntry(current, nextState.entry!)
-          : mergeEntries(current, [nextState.entry!]),
+        mergeEntries(current, [nextState.entry!]),
       );
       if (nextState.entry.scheduled_date) {
         setWeekStart(startOfWeek(parseLocalDate(nextState.entry.scheduled_date)));
       }
       setSelectedEntryId(null);
-      if (!isEditing) {
-        setShowPostSaveNotificationPrompt(true);
-      }
+      setShowPostSaveNotificationPrompt(true);
       resetForm();
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  async function saveEditEntry(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (isSavingEdit || !editingEntry) {
+      return;
+    }
+
+    setIsSavingEdit(true);
+
+    try {
+      const formData = new FormData(event.currentTarget);
+      const nextState = await updateCalendarEntry(editState, formData);
+
+      setEditState(nextState);
+
+      if (nextState.status !== "success" || !nextState.entry) {
+        return;
+      }
+
+      setEntries((current) => replaceEntry(current, nextState.entry!));
+      if (nextState.entry.scheduled_date) {
+        setWeekStart(startOfWeek(parseLocalDate(nextState.entry.scheduled_date)));
+      }
+      setActionState({
+        status: "success",
+        message: "Calendar post updated.",
+        entry: nextState.entry,
+      });
+      setSelectedEntryId(null);
+      closeEditModal();
+    } finally {
+      setIsSavingEdit(false);
     }
   }
 
@@ -452,22 +501,21 @@ export function CalendarWorkspace({
     const parsedNotes = parseCalendarNotes(entry.notes);
     const entryIdea = ideas.find((idea) => idea.id === entry.content_idea_id);
 
-    if (
-      entryIdea &&
-      !ideaMatchesCurrentNiche(entryIdea, currentNiche, currentSubNiche)
-    ) {
-      setShowAllIdeaNiches(true);
-    }
-
-    setEditingEntryId(entry.id);
-    setSelectedIdeaId(entry.content_idea_id ?? ideas[0]?.id ?? "");
-    setSelectedCaptionId(parsedNotes.captionId ?? "");
-    setScheduledDate(entry.scheduled_date ?? todayValue);
-    setScheduledTime(timeLabel(entry.scheduled_time));
-    setPlatform(entry.platform ?? "Instagram");
-    setStatus(entry.status ?? "Planned");
-    setNotes(parsedNotes.notes);
-    setActionState(initialActionState);
+    setEditingEntry(entry);
+    setEditShowAllIdeaNiches(
+      Boolean(
+        entryIdea &&
+          !ideaMatchesCurrentNiche(entryIdea, currentNiche, currentSubNiche),
+      ),
+    );
+    setEditIdeaId(entry.content_idea_id ?? ideas[0]?.id ?? "");
+    setEditCaptionId(parsedNotes.captionId ?? "");
+    setEditScheduledDate(entry.scheduled_date ?? todayValue);
+    setEditScheduledTime(timeLabel(entry.scheduled_time));
+    setEditPlatform(entry.platform ?? "Instagram");
+    setEditStatus(entry.status ?? "Planned");
+    setEditNotes(parsedNotes.notes);
+    setEditState(initialActionState);
     setSelectedEntryId(null);
   }
 
@@ -656,19 +704,6 @@ export function CalendarWorkspace({
 
       <div className="grid gap-5 xl:grid-cols-[0.95fr_1.4fr]">
         <section className="space-y-5">
-          <div
-            className={cn(
-              editingEntryId &&
-                "fixed inset-0 z-50 flex items-end bg-black/70 p-3 backdrop-blur-sm sm:items-center sm:justify-center",
-            )}
-            onClick={editingEntryId ? resetForm : undefined}
-          >
-            <div
-              className={cn(
-                editingEntryId && "max-h-[92dvh] w-full overflow-y-auto sm:max-w-2xl",
-              )}
-              onClick={(event) => event.stopPropagation()}
-            >
           <Card className="border-emerald-300/20">
             <CardHeader>
               <div className="flex items-center gap-3">
@@ -679,7 +714,7 @@ export function CalendarWorkspace({
                   <Plus />
                 </div>
                 <div>
-                  <CardTitle>{editingEntryId ? "Edit scheduled post" : "Create scheduled post"}</CardTitle>
+                  <CardTitle>Create scheduled post</CardTitle>
                   <p className="mt-1 text-sm text-zinc-400">
                     Add a saved idea to your manual posting plan.
                   </p>
@@ -688,9 +723,6 @@ export function CalendarWorkspace({
             </CardHeader>
             <CardContent>
               <form className="space-y-4" onSubmit={saveEntry}>
-                {editingEntryId ? (
-                  <input name="entry_id" type="hidden" value={editingEntryId} />
-                ) : null}
                 <div>
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <label className="text-xs font-medium text-zinc-500" htmlFor="calendar-idea">
@@ -877,21 +909,14 @@ export function CalendarWorkspace({
                 {renderMessage(actionState)}
 
                 <div className="flex flex-wrap justify-end gap-2">
-                  {editingEntryId ? (
-                    <Button onClick={resetForm} type="button" variant="secondary">
-                      Cancel edit
-                    </Button>
-                  ) : null}
                   <Button disabled={isSaving || !selectedIdeaId} type="submit">
                     {isSaving ? <LoaderCircle className="animate-spin" /> : <Check />}
-                    {editingEntryId ? "Save changes" : "Schedule post"}
+                    Schedule post
                   </Button>
                 </div>
               </form>
             </CardContent>
           </Card>
-            </div>
-          </div>
 
           <Card>
             <CardHeader>
@@ -1107,6 +1132,215 @@ export function CalendarWorkspace({
           {renderMessage(deleteState)}
         </section>
       </div>
+
+      {editingEntry ? (
+        <div
+          aria-labelledby="calendar-edit-title"
+          aria-modal="true"
+          className="fixed inset-0 z-[60] flex items-end bg-black/75 p-3 backdrop-blur-sm sm:items-center sm:justify-center"
+          onClick={closeEditModal}
+          role="dialog"
+        >
+          <div
+            className="max-h-[92dvh] w-full overflow-y-auto rounded-lg border border-emerald-300/20 bg-zinc-950 p-5 shadow-2xl shadow-black/50 sm:max-w-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-[0.2em] text-emerald-300">
+                  Calendar edit
+                </p>
+                <h3
+                  className="mt-2 text-xl font-semibold leading-7 text-white"
+                  id="calendar-edit-title"
+                >
+                  Edit scheduled post
+                </h3>
+              </div>
+              <button
+                aria-label="Close edit scheduled post"
+                className="rounded-md border border-white/10 p-2 text-zinc-400 transition hover:border-white/20 hover:text-white"
+                onClick={closeEditModal}
+                type="button"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            <form className="space-y-4" onSubmit={saveEditEntry}>
+              <input name="entry_id" type="hidden" value={editingEntry.id} />
+
+              <div>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <label className="text-xs font-medium text-zinc-500" htmlFor="calendar-edit-idea">
+                    Saved idea
+                  </label>
+                  <div className="flex rounded-md border border-white/10 bg-zinc-950 p-1">
+                    <button
+                      className={cn(
+                        "rounded px-2 py-1 text-xs transition",
+                        !editShowAllIdeaNiches
+                          ? "bg-emerald-400 text-zinc-950"
+                          : "text-zinc-400 hover:text-white",
+                      )}
+                      onClick={() => {
+                        setEditShowAllIdeaNiches(false);
+                        setEditIdeaId(currentNicheIdeas[0]?.id ?? "");
+                        setEditCaptionId("");
+                      }}
+                      type="button"
+                    >
+                      Current niche only
+                    </button>
+                    <button
+                      className={cn(
+                        "rounded px-2 py-1 text-xs transition",
+                        editShowAllIdeaNiches
+                          ? "bg-emerald-400 text-zinc-950"
+                          : "text-zinc-400 hover:text-white",
+                      )}
+                      onClick={() => {
+                        setEditShowAllIdeaNiches(true);
+                        setEditIdeaId((current) => current || ideas[0]?.id || "");
+                        setEditCaptionId("");
+                      }}
+                      type="button"
+                    >
+                      All niches
+                    </button>
+                  </div>
+                </div>
+
+                {editVisibleIdeaOptions.length > 0 ? (
+                  <select
+                    className="mt-2 h-11 w-full rounded-md border border-white/10 bg-zinc-950 px-3 text-sm text-zinc-100"
+                    id="calendar-edit-idea"
+                    name="content_idea_id"
+                    onChange={(event) => {
+                      setEditIdeaId(event.target.value);
+                      setEditCaptionId("");
+                    }}
+                    value={editIdeaId}
+                  >
+                    {editShowAllIdeaNiches
+                      ? editGroupedIdeaOptions.map((group) => (
+                          <optgroup key={group.label} label={group.label}>
+                            {group.ideas.map((idea) => (
+                              <option key={idea.id} value={idea.id}>
+                                {shortIdeaLabel(idea)}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ))
+                      : editVisibleIdeaOptions.map((idea) => (
+                          <option key={idea.id} value={idea.id}>
+                            {shortIdeaLabel(idea)}
+                          </option>
+                        ))}
+                  </select>
+                ) : (
+                  <div className="mt-2 rounded-lg border border-white/10 bg-white/[0.025] p-3 text-sm text-zinc-400">
+                    Save an idea first, then attach it to this scheduled post.
+                  </div>
+                )}
+              </div>
+
+              <label className="block text-xs font-medium text-zinc-500">
+                Saved caption optional
+                <select
+                  className="mt-1 h-11 w-full rounded-md border border-white/10 bg-zinc-950 px-3 text-sm text-zinc-100"
+                  name="caption_id"
+                  onChange={(event) => setEditCaptionId(event.target.value)}
+                  value={editCaptionId}
+                >
+                  <option value="">No caption attached</option>
+                  {editIdeaCaptions.map((caption) => (
+                    <option key={caption.id} value={caption.id}>
+                      {captionLabel(caption)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="text-xs font-medium text-zinc-500">
+                  Date
+                  <input
+                    className="mt-1 h-11 w-full rounded-md border border-white/10 bg-zinc-950 px-3 text-sm text-zinc-100"
+                    name="scheduled_date"
+                    onChange={(event) => setEditScheduledDate(event.target.value)}
+                    type="date"
+                    value={editScheduledDate}
+                  />
+                </label>
+                <label className="text-xs font-medium text-zinc-500">
+                  Time
+                  <input
+                    className="mt-1 h-11 w-full rounded-md border border-white/10 bg-zinc-950 px-3 text-sm text-zinc-100"
+                    name="scheduled_time"
+                    onChange={(event) => setEditScheduledTime(event.target.value)}
+                    type="time"
+                    value={editScheduledTime}
+                  />
+                </label>
+                <label className="text-xs font-medium text-zinc-500">
+                  Platform
+                  <select
+                    className="mt-1 h-11 w-full rounded-md border border-white/10 bg-zinc-950 px-3 text-sm text-zinc-100"
+                    name="platform"
+                    onChange={(event) => setEditPlatform(event.target.value)}
+                    value={editPlatform}
+                  >
+                    {platforms.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-xs font-medium text-zinc-500">
+                  Status
+                  <select
+                    className="mt-1 h-11 w-full rounded-md border border-white/10 bg-zinc-950 px-3 text-sm text-zinc-100"
+                    name="status"
+                    onChange={(event) => setEditStatus(event.target.value)}
+                    value={editStatus}
+                  >
+                    {statuses.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <label className="block text-xs font-medium text-zinc-500">
+                Notes optional
+                <textarea
+                  className="mt-1 min-h-28 w-full rounded-md border border-white/10 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
+                  name="notes"
+                  onChange={(event) => setEditNotes(event.target.value)}
+                  placeholder="Add shoot notes, reminders, or posting context."
+                  value={editNotes}
+                />
+              </label>
+
+              {renderMessage(editState)}
+
+              <div className="flex flex-wrap justify-end gap-2 border-t border-white/10 pt-4">
+                <Button onClick={closeEditModal} type="button" variant="secondary">
+                  Cancel
+                </Button>
+                <Button disabled={isSavingEdit || !editIdeaId} type="submit">
+                  {isSavingEdit ? <LoaderCircle className="animate-spin" /> : <Check />}
+                  Save changes
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
 
       {selectedEntry ? (
         <div
