@@ -7,11 +7,17 @@ import {
   LoaderCircle,
   Pencil,
   Plus,
+  Search,
   Trash2,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  PostInsightDrawer,
+  type PostInsightCaption,
+  type PostInsightDetail,
+} from "@/components/post-insight-drawer";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -41,9 +47,12 @@ export type AnalyticsCalendarPost = {
   status: string | null;
 };
 
+export type AnalyticsCaption = PostInsightCaption;
+
 type AnalyticsWorkspaceProps = {
   entries: AnalyticsEntryPayload[];
   ideas: AnalyticsIdea[];
+  captions: AnalyticsCaption[];
   calendarPosts: AnalyticsCalendarPost[];
   currentNiche: string | null;
   currentSubNiche: string | null;
@@ -324,6 +333,7 @@ function PlatformComparisonCard({
 export function AnalyticsWorkspace({
   entries,
   ideas,
+  captions,
   calendarPosts,
   currentNiche,
   currentSubNiche,
@@ -337,6 +347,7 @@ export function AnalyticsWorkspace({
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
+  const [detailEntryId, setDetailEntryId] = useState<string | null>(null);
   const [selectedCalendarId, setSelectedCalendarId] = useState("");
   const [selectedIdeaId, setSelectedIdeaId] = useState("");
   const [platform, setPlatform] = useState("Instagram");
@@ -355,6 +366,17 @@ export function AnalyticsWorkspace({
   const formCardRef = useRef<HTMLDivElement>(null);
   const postTitleInputRef = useRef<HTMLInputElement>(null);
   const ideaMap = useMemo(() => new Map(ideas.map((idea) => [idea.id, idea])), [ideas]);
+  const captionMap = useMemo(() => {
+    const map = new Map<string, AnalyticsCaption>();
+
+    captions.forEach((caption) => {
+      if (caption.content_idea_id && !map.has(caption.content_idea_id)) {
+        map.set(caption.content_idea_id, caption);
+      }
+    });
+
+    return map;
+  }, [captions]);
   const calendarMap = useMemo(
     () => new Map(calendarPosts.map((post) => [post.id, post])),
     [calendarPosts],
@@ -420,6 +442,18 @@ export function AnalyticsWorkspace({
     ? `${selectedIdea.niche ?? "Unknown niche"} / ${selectedIdea.sub_niche ?? "General"}`
     : null;
   const unlinkedEntriesCount = localEntries.filter((entry) => !entry.niche).length;
+  const detailEntry = detailEntryId
+    ? localEntries.find((entry) => entry.id === detailEntryId) ?? null
+    : null;
+  const detail: PostInsightDetail | null = detailEntry
+    ? {
+        entry: detailEntry,
+        idea: detailEntry.content_idea_id ? ideaMap.get(detailEntry.content_idea_id) ?? null : null,
+        caption: detailEntry.content_idea_id
+          ? captionMap.get(detailEntry.content_idea_id) ?? null
+          : null,
+      }
+    : null;
 
   const resetForm = useCallback(() => {
     setEditingEntryId(null);
@@ -575,6 +609,9 @@ export function AnalyticsWorkspace({
         );
         if (editingEntryId === nextState.deletedEntryId) {
           resetForm();
+        }
+        if (detailEntryId === nextState.deletedEntryId) {
+          setDetailEntryId(null);
         }
       }
     } finally {
@@ -970,6 +1007,15 @@ export function AnalyticsWorkspace({
                       </p>
                     </div>
                     <div className="flex gap-2">
+                      <Button
+                        onClick={() => setDetailEntryId(entry.id)}
+                        size="sm"
+                        type="button"
+                        variant="secondary"
+                      >
+                        <Search />
+                        View details
+                      </Button>
                       <Button onClick={() => editEntry(entry)} size="sm" type="button" variant="secondary">
                         <Pencil />
                         Edit
@@ -1035,6 +1081,17 @@ export function AnalyticsWorkspace({
           valueLabel={(entry) => formatPercent(engagementRate(entry))}
         />
       </div>
+
+      <PostInsightDrawer
+        detail={detail}
+        onClose={() => setDetailEntryId(null)}
+        onEdit={() => {
+          if (detailEntry) {
+            editEntry(detailEntry);
+          }
+        }}
+        open={Boolean(detail)}
+      />
     </div>
   );
 }

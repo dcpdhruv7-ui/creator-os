@@ -3,6 +3,7 @@ import { AlertCircle } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import {
   AnalyticsWorkspace,
+  type AnalyticsCaption,
   type AnalyticsCalendarPost,
   type AnalyticsIdea,
 } from "./analytics-workspace";
@@ -53,7 +54,7 @@ export default async function AnalyticsPage() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const [profileResult, ideasResult, calendarResult] = await Promise.all([
+  const [profileResult, ideasResult, captionsResult, calendarResult] = await Promise.all([
     supabase
       .from("user_creator_profiles")
       .select("niche, sub_niche")
@@ -64,6 +65,11 @@ export default async function AnalyticsPage() {
     supabase
       .from("content_ideas")
       .select("id, title, niche, sub_niche, format")
+      .eq("user_id", user!.id)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("captions")
+      .select("id, content_idea_id, caption_type, hook, body, cta, hashtags")
       .eq("user_id", user!.id)
       .order("created_at", { ascending: false }),
     supabase
@@ -89,7 +95,13 @@ export default async function AnalyticsPage() {
       .order("posted_at", { ascending: false });
   }
 
-  if (profileResult.error || ideasResult.error || calendarResult.error || analyticsResult.error) {
+  if (
+    profileResult.error ||
+    ideasResult.error ||
+    captionsResult.error ||
+    calendarResult.error ||
+    analyticsResult.error
+  ) {
     return (
       <section className="mx-auto w-full max-w-6xl">
         <div className="flex items-start gap-3 rounded-lg border border-red-400/25 bg-red-400/[0.08] p-4 text-sm text-red-100">
@@ -114,6 +126,7 @@ export default async function AnalyticsPage() {
 
       <AnalyticsWorkspace
         calendarPosts={(calendarResult.data ?? []) as AnalyticsCalendarPost[]}
+        captions={(captionsResult.data ?? []) as AnalyticsCaption[]}
         currentNiche={profileResult.data?.niche ?? null}
         currentSubNiche={profileResult.data?.sub_niche ?? null}
         entries={((analyticsResult.data ?? []) as Partial<AnalyticsEntryPayload>[]).map(

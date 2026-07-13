@@ -14,6 +14,8 @@ export type Recommendation = {
   category: RecommendationCategory;
   actionLabel?: string;
   actionHref?: string;
+  drilldownEntryId?: string;
+  drilldownActionLabel?: string;
 };
 
 export type CreatorProfileSummary = {
@@ -71,6 +73,7 @@ export type RecommendationAnalyticsEntry = {
   saves: number | null;
   reach: number | null;
   follows_gained: number | null;
+  notes?: string | null;
   posted_at: string | null;
   created_at: string | null;
 };
@@ -221,8 +224,19 @@ function recommendation(
   category: RecommendationCategory,
   actionLabel?: string,
   actionHref?: string,
+  drilldownEntryId?: string,
+  drilldownActionLabel?: string,
 ): Recommendation {
-  return { title, explanation, priority, category, actionLabel, actionHref };
+  return {
+    title,
+    explanation,
+    priority,
+    category,
+    actionLabel,
+    actionHref,
+    drilldownEntryId,
+    drilldownActionLabel,
+  };
 }
 
 function platformStats(entries: RecommendationAnalyticsEntry[]) {
@@ -475,27 +489,39 @@ export function buildRecommendationInsights({
     );
   } else {
     if (bestPlatformByViews) {
+      const bestPlatformViewPost = performanceEntries
+        .filter((entry) => (entry.platform ?? "Unknown") === bestPlatformByViews.platform)
+        .sort((a, b) => numberValue(b.views) - numberValue(a.views))[0];
+
       performance.push(
         recommendation(
           `${bestPlatformByViews.platform} is currently strongest by views.`,
           `Based on ${isNicheScoped ? "assigned posts for this niche" : "your manually tracked posts"}, ${bestPlatformByViews.platform} has ${bestPlatformByViews.views.toLocaleString()} tracked views across ${plural(bestPlatformByViews.posts, "post")}.`,
           "Medium",
           "Platform",
-          "Go to Analytics",
+          bestPlatformViewPost ? undefined : "Go to Analytics",
           "/analytics",
+          bestPlatformViewPost?.id,
+          bestPlatformViewPost ? "View top post" : undefined,
         ),
       );
     }
 
     if (bestPlatformByEngagement) {
+      const bestPlatformEngagementPost = performanceEntries
+        .filter((entry) => (entry.platform ?? "Unknown") === bestPlatformByEngagement.platform)
+        .sort((a, b) => engagement(b) - engagement(a))[0];
+
       performance.push(
         recommendation(
           `${bestPlatformByEngagement.platform} has your strongest average engagement.`,
           `Based on ${isNicheScoped ? "assigned posts for this niche" : "your manually tracked posts"}, average engagement is ${Math.round(bestPlatformByEngagement.averageEngagement).toLocaleString()} actions per tracked post.`,
           "Medium",
           "Analytics",
-          "Go to Analytics",
+          bestPlatformEngagementPost ? undefined : "Go to Analytics",
           "/analytics",
+          bestPlatformEngagementPost?.id,
+          bestPlatformEngagementPost ? "View best engagement post" : undefined,
         ),
       );
     }
@@ -507,8 +533,10 @@ export function buildRecommendationInsights({
           `${bestPostByViews.post_title ?? "Manual analytics entry"} has ${numberValue(bestPostByViews.views).toLocaleString()} views. Create a follow-up while the signal is fresh.`,
           "High",
           "Content",
-          "Go to Ideas",
+          undefined,
           "/ideas",
+          bestPostByViews.id,
+          "View post details",
         ),
       );
     }
@@ -520,8 +548,10 @@ export function buildRecommendationInsights({
           `${bestPostByEngagement.post_title ?? "Manual analytics entry"} earned ${plural(numberValue(bestPostByEngagement.saves), "save")}. Saves usually signal useful content.`,
           "Medium",
           "Content",
-          "Go to Ideas",
+          undefined,
           "/ideas",
+          bestPostByEngagement.id,
+          "View post details",
         ),
       );
     }

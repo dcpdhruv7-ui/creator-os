@@ -13,6 +13,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import type { PostInsightDetail } from "@/components/post-insight-drawer";
 import {
   buildRecommendationInsights,
   type CreatorProfileSummary,
@@ -26,9 +27,10 @@ import {
 } from "@/lib/recommendations";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/server";
+import { RecommendationActionButton, RecommendationCard } from "./recommendation-card";
 
 const analyticsSelect =
-  "id, content_idea_id, platform, post_title, niche, sub_niche, views, likes, comments, shares, saves, reach, follows_gained, posted_at, created_at";
+  "id, content_idea_id, platform, post_title, niche, sub_niche, views, likes, comments, shares, saves, reach, follows_gained, notes, posted_at, created_at";
 const baseAnalyticsSelect =
   "id, content_idea_id, platform, post_title, niche, sub_niche, views, likes, comments, shares, saves, reach, posted_at, created_at";
 
@@ -54,50 +56,18 @@ function priorityClass(priority: RecommendationPriority) {
   }
 }
 
-function RecommendationCard({ item }: { item: Recommendation }) {
-  return (
-    <Card className="h-full">
-      <CardHeader>
-        <div className="mb-2 flex flex-wrap items-center gap-2">
-          <span
-            className={cn(
-              "rounded-full border px-2 py-0.5 text-xs font-medium",
-              priorityClass(item.priority),
-            )}
-          >
-            {item.priority}
-          </span>
-          <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-xs text-zinc-400">
-            {item.category}
-          </span>
-        </div>
-        <CardTitle className="leading-6">{item.title}</CardTitle>
-        <CardDescription className="leading-6">{item.explanation}</CardDescription>
-      </CardHeader>
-      {item.actionHref && item.actionLabel ? (
-        <CardContent>
-          <Button asChild size="sm" variant="secondary">
-            <Link href={item.actionHref}>
-              {item.actionLabel}
-              <ArrowRight />
-            </Link>
-          </Button>
-        </CardContent>
-      ) : null}
-    </Card>
-  );
-}
-
 function RecommendationSection({
   title,
   description,
   items,
   empty,
+  postDetails,
 }: {
   title: string;
   description: string;
   items: Recommendation[];
   empty: string;
+  postDetails: Record<string, PostInsightDetail>;
 }) {
   return (
     <section>
@@ -108,7 +78,11 @@ function RecommendationSection({
       {items.length > 0 ? (
         <div className="grid gap-4 lg:grid-cols-2">
           {items.map((item) => (
-            <RecommendationCard item={item} key={`${item.category}-${item.title}`} />
+            <RecommendationCard
+              item={item}
+              key={`${item.category}-${item.title}`}
+              postDetails={postDetails}
+            />
           ))}
         </div>
       ) : (
@@ -252,13 +226,15 @@ export default async function RecommendationsPage({
     follows_gained: entry.follows_gained ?? 0,
     posted_at: entry.posted_at ?? null,
     created_at: entry.created_at ?? null,
+    notes: entry.notes ?? null,
   }));
+  const ideas = (ideasResult.data ?? []) as RecommendationIdea[];
+  const captions = (captionsResult.data ?? []) as RecommendationCaption[];
+  const calendarEntries = (calendarResult.data ?? []) as RecommendationCalendarEntry[];
   const directionsByKey = new Map<string, DirectionOption>();
 
   addDirection(directionsByKey, profile?.niche ?? null, profile?.sub_niche ?? null);
-  (ideasResult.data ?? []).forEach((idea) =>
-    addDirection(directionsByKey, idea.niche ?? null, idea.sub_niche ?? null),
-  );
+  ideas.forEach((idea) => addDirection(directionsByKey, idea.niche ?? null, idea.sub_niche ?? null));
   normalizedAnalyticsEntries.forEach((entry) =>
     addDirection(directionsByKey, entry.niche ?? null, entry.sub_niche ?? null),
   );
@@ -287,12 +263,56 @@ export default async function RecommendationsPage({
       : profile;
   const insights = buildRecommendationInsights({
     profile: activeProfile,
-    ideas: (ideasResult.data ?? []) as RecommendationIdea[],
-    captions: (captionsResult.data ?? []) as RecommendationCaption[],
-    calendarEntries: (calendarResult.data ?? []) as RecommendationCalendarEntry[],
+    ideas,
+    captions,
+    calendarEntries,
     analyticsEntries: normalizedAnalyticsEntries,
     scope,
   });
+  const ideaById = new Map(ideas.map((idea) => [idea.id, idea]));
+  const firstCaptionByIdeaId = new Map<string, RecommendationCaption>();
+
+  captions.forEach((caption) => {
+    if (caption.content_idea_id && !firstCaptionByIdeaId.has(caption.content_idea_id)) {
+      firstCaptionByIdeaId.set(caption.content_idea_id, caption);
+    }
+  });
+
+  const postDetails = Object.fromEntries(
+    normalizedAnalyticsEntries.map((entry) => {
+      const idea = entry.content_idea_id ? ideaById.get(entry.content_idea_id) : null;
+      const caption = entry.content_idea_id
+        ? firstCaptionByIdeaId.get(entry.content_idea_id) ?? null
+        : null;
+
+      return [
+        entry.id,
+        {
+          entry,
+          idea: idea
+            ? {
+                id: idea.id,
+                title: idea.title,
+                niche: idea.niche,
+                sub_niche: idea.sub_niche,
+                format: idea.format,
+              }
+            : null,
+          caption: caption
+            ? {
+                id: caption.id,
+                content_idea_id: caption.content_idea_id,
+                caption_type: caption.caption_type,
+                hook: caption.hook,
+                body: caption.body,
+                cta: caption.cta,
+                hashtags: caption.hashtags,
+              }
+            : null,
+        },
+      ];
+    }),
+  ) satisfies Record<string, PostInsightDetail>;
   const hasAnyData =
     insights.counts.ideas +
       insights.counts.captions +
@@ -442,6 +462,11 @@ export default async function RecommendationsPage({
                     </div>
                     <p className="mt-2 font-medium text-white">{item.title}</p>
                     <p className="mt-1 text-sm leading-6 text-zinc-400">{item.explanation}</p>
+                    {item.drilldownEntryId || (item.actionHref && item.actionLabel) ? (
+                      <div className="mt-3">
+                        <RecommendationActionButton item={item} postDetails={postDetails} />
+                      </div>
+                    ) : null}
                   </div>
                 ))}
               </div>
@@ -585,36 +610,42 @@ export default async function RecommendationsPage({
           description="A clear action list for this week."
           empty="Your weekly action plan will appear as your content system fills in."
           items={insights.weeklyActions}
+          postDetails={postDetails}
           title="Weekly action plan"
         />
         <RecommendationSection
           description="Signals from manually tracked views, saves, reach, and engagement."
           empty="Track at least 3 posts to unlock stronger performance recommendations."
           items={insights.performance}
+          postDetails={postDetails}
           title="Content performance recommendations"
         />
         <RecommendationSection
           description="Gaps between ideas, captions, calendar, and analytics."
           empty="No major content gaps found in this view."
           items={insights.contentGaps}
+          postDetails={postDetails}
           title="Content gap recommendations"
         />
         <RecommendationSection
           description="Rule-based directions for what to create next."
           empty="Save ideas and track results to unlock next content directions."
           items={insights.nextIdeas}
+          postDetails={postDetails}
           title="Next idea recommendations"
         />
         <RecommendationSection
           description="Platform-agnostic guidance based only on your manual data."
           empty="Track posts across platforms before comparing platform performance."
           items={insights.platforms}
+          postDetails={postDetails}
           title="Platform recommendations"
         />
         <RecommendationSection
           description="Calendar rhythm, posted status, and cleanup reminders."
           empty="Your consistency recommendations will appear after scheduling posts."
           items={insights.consistency}
+          postDetails={postDetails}
           title="Consistency recommendations"
         />
       </div>
