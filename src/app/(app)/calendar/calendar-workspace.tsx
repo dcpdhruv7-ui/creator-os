@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react
 import Link from "next/link";
 import {
   ArrowRight,
+  Bell,
   CalendarDays,
   Check,
   Clock,
@@ -305,6 +306,8 @@ export function CalendarWorkspace({
   const [isSaving, setIsSaving] = useState(false);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isSendingReminder, setIsSendingReminder] = useState(false);
+  const [reminderSendState, setReminderSendState] = useState(initialActionState);
   const [frequency, setFrequency] = useState(5);
   const [suggestedPlan, setSuggestedPlan] = useState<SuggestedPost[]>([]);
   const [isSavingPlan, setIsSavingPlan] = useState(false);
@@ -494,6 +497,44 @@ export function CalendarWorkspace({
       }
     } finally {
       setIsDeleting(false);
+    }
+  }
+
+  async function sendReminderNow(entryId: string) {
+    if (isSendingReminder) {
+      return;
+    }
+
+    setIsSendingReminder(true);
+    setReminderSendState(initialActionState);
+
+    try {
+      const response = await fetch("/api/notifications/calendar-reminder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ calendarEntryId: entryId }),
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        setReminderSendState({
+          status: "error",
+          message: data.error ?? "We could not send this reminder.",
+        });
+        return;
+      }
+
+      setReminderSendState({
+        status: "success",
+        message: data.message ?? "Reminder sent to your enabled devices.",
+      });
+    } catch {
+      setReminderSendState({
+        status: "error",
+        message: "We could not send this reminder.",
+      });
+    } finally {
+      setIsSendingReminder(false);
     }
   }
 
@@ -1094,7 +1135,10 @@ export function CalendarWorkspace({
                           <button
                             className="w-full rounded-md border border-white/10 bg-white/[0.035] p-3 text-left transition hover:border-emerald-300/30 hover:bg-emerald-400/[0.06] focus:outline-none focus:ring-2 focus:ring-emerald-300/40"
                             key={entry.id}
-                            onClick={() => setSelectedEntryId(entry.id)}
+                            onClick={() => {
+                              setReminderSendState(initialActionState);
+                              setSelectedEntryId(entry.id);
+                            }}
                             type="button"
                           >
                             <div className="flex min-w-0 items-center gap-1.5 text-xs text-zinc-400">
@@ -1156,6 +1200,9 @@ export function CalendarWorkspace({
                 >
                   Edit scheduled post
                 </h3>
+                <p className="mt-2 inline-flex rounded-full border border-emerald-300/25 bg-emerald-400/10 px-2.5 py-1 text-xs font-medium text-emerald-100">
+                  Edit modal active
+                </p>
               </div>
               <button
                 aria-label="Close edit scheduled post"
@@ -1441,7 +1488,20 @@ export function CalendarWorkspace({
                     </p>
                   </div>
 
+                  <div>
+                    {renderMessage(reminderSendState)}
+                  </div>
+
                   <div className="flex flex-wrap justify-end gap-2">
+                    <Button
+                      disabled={isSendingReminder}
+                      onClick={() => sendReminderNow(selectedEntry.id)}
+                      type="button"
+                      variant="secondary"
+                    >
+                      {isSendingReminder ? <LoaderCircle className="animate-spin" /> : <Bell />}
+                      Send reminder now
+                    </Button>
                     <Button
                       onClick={() => editEntry(selectedEntry)}
                       type="button"

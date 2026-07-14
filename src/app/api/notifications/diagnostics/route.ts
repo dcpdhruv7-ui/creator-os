@@ -51,11 +51,10 @@ export async function GET() {
       .neq("status", "Posted"),
     supabase
       .from("notification_logs")
-      .select("sent_at")
+      .select("status, sent_at, created_at")
       .eq("user_id", user.id)
       .eq("notification_type", "calendar_reminder")
-      .eq("status", "sent")
-      .order("sent_at", { ascending: false })
+      .order("created_at", { ascending: false })
       .limit(1),
   ]);
 
@@ -103,7 +102,8 @@ export async function GET() {
   const nextReminder = reminders.sort(
     (a, b) => a.reminderAt.getTime() - b.reminderAt.getTime(),
   )[0];
-  const lastSentAt = logsResult.data?.[0]?.sent_at ?? null;
+  const lastLog = logsResult.data?.[0] ?? null;
+  const lastSentAt = lastLog?.sent_at ?? null;
 
   return NextResponse.json({
     calendarRemindersEnabled:
@@ -115,6 +115,7 @@ export async function GET() {
     nextReminderTime: nextReminder
       ? formatReminderTime(nextReminder.reminderAt, timeZone)
       : null,
+    lastReminderLogStatus: lastLog?.status ?? null,
     lastReminderSent: lastSentAt ? formatReminderTime(new Date(lastSentAt), timeZone) : null,
   });
 }

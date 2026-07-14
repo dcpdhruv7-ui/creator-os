@@ -40,6 +40,7 @@ type ReminderDiagnostics = {
   activeDevicesCount: number;
   upcomingCalendarPostsCount: number;
   nextReminderTime: string | null;
+  lastReminderLogStatus: string | null;
   lastReminderSent: string | null;
 };
 
@@ -462,6 +463,12 @@ export function NotificationSettings({
             </div>
             <dl className="mt-4 grid gap-3 sm:grid-cols-2">
               <div className="rounded-md border border-white/10 bg-white/[0.025] p-3">
+                <dt className="text-xs text-zinc-500">This device</dt>
+                <dd className="mt-1 text-sm font-medium text-zinc-100">
+                  {isSubscribed ? "Notifications enabled" : "Notifications not enabled"}
+                </dd>
+              </div>
+              <div className="rounded-md border border-white/10 bg-white/[0.025] p-3">
                 <dt className="text-xs text-zinc-500">Calendar reminders</dt>
                 <dd className="mt-1 text-sm font-medium text-zinc-100">
                   {(diagnostics?.calendarRemindersEnabled ?? preferences.calendar_reminders_enabled)
@@ -499,9 +506,11 @@ export function NotificationSettings({
                 </dd>
               </div>
               <div className="rounded-md border border-white/10 bg-white/[0.025] p-3">
-                <dt className="text-xs text-zinc-500">Last reminder sent</dt>
+                <dt className="text-xs text-zinc-500">Last reminder log</dt>
                 <dd className="mt-1 text-sm font-medium text-zinc-100">
-                  {diagnostics?.lastReminderSent ?? "No reminder sent yet"}
+                  {diagnostics?.lastReminderLogStatus
+                    ? `${diagnostics.lastReminderLogStatus}${diagnostics.lastReminderSent ? ` at ${diagnostics.lastReminderSent}` : ""}`
+                    : "No reminder log yet"}
                 </dd>
               </div>
             </dl>
