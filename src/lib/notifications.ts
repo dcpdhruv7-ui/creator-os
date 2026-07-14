@@ -13,6 +13,14 @@ export type PushSubscriptionRow = {
   auth: string;
 };
 
+export type PushDeliveryResult =
+  | { ok: true }
+  | {
+      ok: false;
+      reason: "missing_config" | "permanent_invalid" | "temporary_failure";
+      statusCode?: number;
+    };
+
 export function getVapidPublicKey() {
   return process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY?.trim() ?? "";
 }
@@ -41,21 +49,43 @@ export function configureWebPush() {
 export async function sendWebPushNotification(
   subscription: PushSubscriptionRow,
   payload: PushPayload,
-) {
+): Promise<PushDeliveryResult> {
   if (!configureWebPush()) {
     return { ok: false, reason: "missing_config" as const };
   }
 
-  await webPush.sendNotification(
-    {
-      endpoint: subscription.endpoint,
-      keys: {
-        p256dh: subscription.p256dh,
-        auth: subscription.auth,
+  try {
+    await webPush.sendNotification(
+      {
+        endpoint: subscription.endpoint,
+        keys: {
+          p256dh: subscription.p256dh,
+          auth: subscription.auth,
+        },
       },
-    },
-    JSON.stringify(payload),
-  );
+      JSON.stringify(payload),
+    );
 
-  return { ok: true as const };
+    return { ok: true as const };
+  } catch (error) {
+    const statusCode =
+      typeof error === "object" && error !== null && "statusCode" in error
+        ? Number(error.statusCode)
+        : undefined;
+
+    if (statusCode === 404 || statusCode === 410) {
+      return { ok: false, reason: "permanent_invalid", statusCode };
+    }
+
+    console.error(
+      "Push delivery failed.",
+      Number.isFinite(statusCode) ? `Provider status: ${statusCode}` : "Provider status unavailable.",
+    );
+
+    return {
+      ok: false,
+      reason: "temporary_failure",
+      ...(Number.isFinite(statusCode) ? { statusCode } : {}),
+    };
+  }
 }

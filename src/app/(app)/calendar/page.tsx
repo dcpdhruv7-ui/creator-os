@@ -5,6 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/server";
 import { getVapidPublicKey, hasPushConfig } from "@/lib/notifications";
+import { classifySchedulerHealth, type SchedulerRun } from "@/lib/scheduler-status";
+import { getReminderTimeZone } from "@/lib/server-environment";
+import { createAdminClient } from "@/lib/supabase/admin";
 import {
   CalendarWorkspace,
   type CalendarCaption,
@@ -68,7 +71,7 @@ export default async function CalendarPage() {
       .maybeSingle(),
     supabase
       .from("notification_logs")
-      .select("related_id, scheduled_for, status, sent_at")
+      .select("related_id, scheduled_for, status, sent_at, attempt_count, next_retry_at")
       .eq("user_id", user!.id)
       .eq("notification_type", "calendar_reminder"),
   ]);
@@ -77,6 +80,30 @@ export default async function CalendarPage() {
       preferencesResult.data?.calendar_reminders_enabled ?? true,
     reminder_minutes_before: preferencesResult.data?.reminder_minutes_before ?? 60,
   };
+  let latestRun: SchedulerRun | null = null;
+  let lastSuccessfulRun: SchedulerRun | null = null;
+  const admin = createAdminClient();
+
+  if (admin) {
+    const [latestResult, successResult] = await Promise.all([
+      admin
+        .from("notification_scheduler_runs")
+        .select("status, started_at, completed_at")
+        .order("started_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      admin
+        .from("notification_scheduler_runs")
+        .select("status, started_at, completed_at")
+        .eq("status", "success")
+        .order("completed_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
+
+    if (!latestResult.error) latestRun = latestResult.data as SchedulerRun | null;
+    if (!successResult.error) lastSuccessfulRun = successResult.data as SchedulerRun | null;
+  }
 
   if (ideas.length === 0) {
     return (
@@ -124,6 +151,8 @@ export default async function CalendarPage() {
           logsResult.error ? [] : ((logsResult.data ?? []) as CalendarReminderLog[])
         }
         reminderPreferences={reminderPreferences}
+        reminderTimeZone={getReminderTimeZone()}
+        schedulerStatus={classifySchedulerHealth({ latestRun, lastSuccessfulRun })}
         vapidPublicKey={getVapidPublicKey()}
       />
     </section>

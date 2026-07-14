@@ -21,10 +21,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { parseCalendarNotes } from "@/lib/calendar-notes";
 import {
-  DEFAULT_REMINDER_TIME_ZONE,
   formatReminderTime,
   reminderTimeForPost,
 } from "@/lib/reminder-time";
+import type { SchedulerHealth } from "@/lib/scheduler-status";
 import { cn } from "@/lib/utils";
 import {
   createCalendarEntry,
@@ -68,6 +68,8 @@ export type CalendarReminderLog = {
   scheduled_for: string | null;
   status: string | null;
   sent_at: string | null;
+  attempt_count?: number | null;
+  next_retry_at?: string | null;
 };
 
 type SuggestedPost = {
@@ -91,6 +93,8 @@ type CalendarWorkspaceProps = {
   vapidPublicKey: string;
   reminderPreferences: CalendarReminderPreferences;
   reminderLogs: CalendarReminderLog[];
+  reminderTimeZone: string;
+  schedulerStatus: SchedulerHealth;
 };
 
 const initialActionState: CalendarActionState = { status: "idle", message: "" };
@@ -267,6 +271,8 @@ export function CalendarWorkspace({
   vapidPublicKey,
   reminderPreferences,
   reminderLogs,
+  reminderTimeZone,
+  schedulerStatus,
 }: CalendarWorkspaceProps) {
   const todayValue = toDateInputValue(new Date());
   const currentNicheIdeas = useMemo(
@@ -308,6 +314,9 @@ export function CalendarWorkspace({
   const [isDeleting, setIsDeleting] = useState(false);
   const [isSendingReminder, setIsSendingReminder] = useState(false);
   const [reminderSendState, setReminderSendState] = useState(initialActionState);
+  const [currentReminderLogs, setCurrentReminderLogs] = useState(reminderLogs);
+  const [currentSchedulerStatus, setCurrentSchedulerStatus] = useState(schedulerStatus);
+  const [manualReminderSentAt, setManualReminderSentAt] = useState<Record<string, string>>({});
   const [frequency, setFrequency] = useState(5);
   const [suggestedPlan, setSuggestedPlan] = useState<SuggestedPost[]>([]);
   const [isSavingPlan, setIsSavingPlan] = useState(false);
@@ -350,6 +359,19 @@ export function CalendarWorkspace({
   const hasUpcomingEntries = entries.some(
     (entry) => entry.scheduled_date && entry.scheduled_date >= todayValue,
   );
+
+  const refreshReminderDiagnostics = useCallback(async () => {
+    try {
+      const response = await fetch("/api/notifications/diagnostics", { cache: "no-store" });
+      const data = await response.json();
+
+      if (!response.ok) return;
+      if (Array.isArray(data.reminderLogs)) setCurrentReminderLogs(data.reminderLogs);
+      if (data.schedulerStatus) setCurrentSchedulerStatus(data.schedulerStatus);
+    } catch {
+      // Keep the last known reminder state when diagnostics are temporarily unavailable.
+    }
+  }, []);
 
   function resetForm() {
     setShowAllIdeaNiches(false);
@@ -466,6 +488,12 @@ export function CalendarWorkspace({
         message: "Calendar post updated.",
         entry: nextState.entry,
       });
+      setManualReminderSentAt((current) => {
+        const next = { ...current };
+        delete next[nextState.entry!.id];
+        return next;
+      });
+      await refreshReminderDiagnostics();
       setSelectedEntryId(null);
       closeEditModal();
     } finally {
@@ -528,6 +556,11 @@ export function CalendarWorkspace({
         status: "success",
         message: data.message ?? "Reminder sent to your enabled devices.",
       });
+      setManualReminderSentAt((current) => ({
+        ...current,
+        [entryId]: data.sentAt ?? new Date().toISOString(),
+      }));
+      await refreshReminderDiagnostics();
     } catch {
       setReminderSendState({
         status: "error",
@@ -687,7 +720,7 @@ export function CalendarWorkspace({
       entry.scheduled_date,
       entry.scheduled_time,
       reminderPreferences.reminder_minutes_before,
-      DEFAULT_REMINDER_TIME_ZONE,
+      reminderTimeZone,
     );
 
     if (!reminder) {
@@ -699,20 +732,49 @@ export function CalendarWorkspace({
     }
 
     const scheduledFor = reminder.scheduledAt.toISOString();
-    const sentLog = reminderLogs.find(
+    const matchingLog = currentReminderLogs.find(
       (log) =>
         log.related_id === entry.id &&
-        log.scheduled_for === scheduledFor &&
-        log.status === "sent",
+        log.scheduled_for === scheduledFor,
     );
 
-    if (sentLog) {
+    if (matchingLog?.status === "sent") {
       return {
         title: "Reminder sent",
-        detail: sentLog.sent_at
-          ? `Sent ${formatReminderTime(new Date(sentLog.sent_at), DEFAULT_REMINDER_TIME_ZONE)}.`
+        detail: matchingLog.sent_at
+          ? `Sent ${formatReminderTime(new Date(matchingLog.sent_at), reminderTimeZone)}.`
           : "This reminder has already been sent.",
         tone: "emerald" as const,
+      };
+    }
+
+    if (manualReminderSentAt[entry.id]) {
+      return {
+        title: "Manual reminder sent",
+        detail: `Sent ${formatReminderTime(
+          new Date(manualReminderSentAt[entry.id]),
+          reminderTimeZone,
+        )}. The automatic reminder remains scheduled separately.`,
+        tone: "emerald" as const,
+      };
+    }
+
+    if (matchingLog?.status === "failed") {
+      const canRetry = (matchingLog.attempt_count ?? 0) < 3;
+      return {
+        title: canRetry ? "Reminder failed and will retry" : "Reminder delivery failed",
+        detail: canRetry
+          ? "The background scheduler will retry this reminder shortly."
+          : "The retry limit was reached. Check your connected devices in Settings.",
+        tone: "amber" as const,
+      };
+    }
+
+    if (matchingLog?.status === "processing") {
+      return {
+        title: "Reminder is being delivered",
+        detail: "The background scheduler has claimed this reminder.",
+        tone: "amber" as const,
       };
     }
 
@@ -724,11 +786,26 @@ export function CalendarWorkspace({
       };
     }
 
+    if (currentSchedulerStatus !== "active") {
+      const detail =
+        currentSchedulerStatus === "never_run"
+          ? "Automatic reminder service is not active yet."
+          : currentSchedulerStatus === "last_run_failed"
+            ? "The latest automatic reminder check failed. Review diagnostics in Settings."
+            : "The automatic reminder service is delayed. Review diagnostics in Settings.";
+
+      return {
+        title: `Reminder: ${reminderTimingLabel(reminderPreferences.reminder_minutes_before)}`,
+        detail,
+        tone: "amber" as const,
+      };
+    }
+
     return {
       title: `Reminder: ${reminderTimingLabel(reminderPreferences.reminder_minutes_before)}`,
       detail: `Reminder scheduled for ${formatReminderTime(
         reminder.reminderAt,
-        DEFAULT_REMINDER_TIME_ZONE,
+        reminderTimeZone,
       )}.`,
       tone: "emerald" as const,
     };
@@ -1138,6 +1215,7 @@ export function CalendarWorkspace({
                             onClick={() => {
                               setReminderSendState(initialActionState);
                               setSelectedEntryId(entry.id);
+                              void refreshReminderDiagnostics();
                             }}
                             type="button"
                           >
@@ -1452,6 +1530,8 @@ export function CalendarWorkspace({
                       "rounded-lg border p-4",
                       reminder.tone === "emerald"
                         ? "border-emerald-300/20 bg-emerald-400/[0.06] text-emerald-100"
+                        : reminder.tone === "amber"
+                          ? "border-amber-300/20 bg-amber-400/[0.06] text-amber-100"
                         : "border-white/10 bg-white/[0.025] text-zinc-300",
                     )}
                   >

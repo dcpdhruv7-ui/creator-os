@@ -1,12 +1,19 @@
-import { sendWebPushNotification, type PushSubscriptionRow } from "@/lib/notifications";
 import {
-  DEFAULT_REMINDER_TIME_ZONE,
+  MAX_REMINDER_ATTEMPTS,
+  REMINDER_RETRY_DELAY_MINUTES,
+  STALE_REMINDER_CLAIM_SECONDS,
+  deliverReminderToSubscriptions,
+} from "@/lib/reminder-delivery";
+import {
   REMINDER_LOOKBACK_MINUTES,
-  REMINDER_SOON_WINDOW_MINUTES,
   addMinutes,
   dateValueInTimeZone,
+  isCalendarEntryEligible,
+  isReminderDue,
   reminderTimeForPost,
 } from "@/lib/reminder-time";
+import { sendWebPushNotification, type PushSubscriptionRow } from "@/lib/notifications";
+import { getReminderTimeZone } from "@/lib/server-environment";
 
 type SupabaseAdminClient = NonNullable<
   Awaited<ReturnType<typeof import("@/lib/supabase/admin").createAdminClient>>
@@ -28,9 +35,11 @@ type CalendarEntry = {
   status: string | null;
 };
 
-type NotificationLog = {
-  related_id: string | null;
-  scheduled_for: string | null;
+type ReminderClaim = {
+  claimed: boolean;
+  log_id: string | null;
+  attempt_count: number;
+  current_status: string | null;
 };
 
 const defaultReminderPreference = {
@@ -38,32 +47,17 @@ const defaultReminderPreference = {
   reminder_minutes_before: 60,
 };
 
-function logKey(entryId: string, scheduledFor: string) {
-  return `${entryId}:${scheduledFor}`;
-}
-
-function isDueReminder({
-  now,
-  reminderAt,
-  reminderMinutes,
-  scheduledAt,
-}: {
-  now: Date;
-  reminderAt: Date;
-  reminderMinutes: number;
-  scheduledAt: Date;
-}) {
-  const lookbackStart = addMinutes(now, -REMINDER_LOOKBACK_MINUTES);
-  const normalDue = reminderAt <= now && reminderAt >= lookbackStart;
-  const soonWindowMinutes = Math.min(
-    Math.max(reminderMinutes, REMINDER_SOON_WINDOW_MINUTES),
-    60,
-  );
-  const soonWindowEnd = addMinutes(now, soonWindowMinutes);
-  const reminderAlreadyPassed = reminderAt < lookbackStart;
-  const comingUpSoon = reminderAlreadyPassed && scheduledAt > now && scheduledAt <= soonWindowEnd;
-
-  return normalDue || comingUpSoon;
+function emptyResult(reason: "no_devices" | "calendar_off") {
+  return {
+    ok: true as const,
+    checked: 0,
+    sent: 0,
+    skippedDuplicates: 0,
+    upcoming: 0,
+    due: 0,
+    pastReminderCount: 0,
+    reason,
+  };
 }
 
 export async function checkCalendarReminders({
@@ -75,15 +69,13 @@ export async function checkCalendarReminders({
   supabase: SupabaseAdminClient;
   userId?: string;
 }) {
-  const timeZone = process.env.CREATOR_OS_TIME_ZONE?.trim() || DEFAULT_REMINDER_TIME_ZONE;
+  const timeZone = getReminderTimeZone();
   let subscriptionsQuery = supabase
     .from("push_subscriptions")
     .select("id, user_id, endpoint, p256dh, auth")
     .eq("enabled", true);
 
-  if (userId) {
-    subscriptionsQuery = subscriptionsQuery.eq("user_id", userId);
-  }
+  if (userId) subscriptionsQuery = subscriptionsQuery.eq("user_id", userId);
 
   const { data: subscriptions, error: subscriptionsError } = await subscriptionsQuery;
 
@@ -92,21 +84,12 @@ export async function checkCalendarReminders({
     return { ok: false as const, error: "Notification devices could not be loaded" };
   }
 
-  const subscriptionRows = (subscriptions ?? []) as Array<PushSubscriptionRow & { user_id: string }>;
+  const subscriptionRows = (subscriptions ?? []) as Array<
+    PushSubscriptionRow & { user_id: string }
+  >;
   const userIds = [...new Set(subscriptionRows.map((subscription) => subscription.user_id))];
 
-  if (userIds.length === 0) {
-    return {
-      ok: true as const,
-      checked: 0,
-      sent: 0,
-      skippedDuplicates: 0,
-      upcoming: 0,
-      due: 0,
-      pastReminderCount: 0,
-      reason: "no_devices" as const,
-    };
-  }
+  if (userIds.length === 0) return emptyResult("no_devices");
 
   const { data: preferences, error: preferencesError } = await supabase
     .from("notification_preferences")
@@ -124,7 +107,6 @@ export async function checkCalendarReminders({
       preference,
     ]),
   );
-
   const activePreferences = userIds
     .map((id) => ({
       user_id: id,
@@ -137,42 +119,20 @@ export async function checkCalendarReminders({
     }))
     .filter((preference) => preference.calendar_reminders_enabled);
 
-  if (activePreferences.length === 0) {
-    return {
-      ok: true as const,
-      checked: 0,
-      sent: 0,
-      skippedDuplicates: 0,
-      upcoming: 0,
-      due: 0,
-      pastReminderCount: 0,
-      reason: "calendar_off" as const,
-    };
-  }
+  if (activePreferences.length === 0) return emptyResult("calendar_off");
 
   const activeUserIds = activePreferences.map((preference) => preference.user_id);
   const startDate = dateValueInTimeZone(addMinutes(now, -REMINDER_LOOKBACK_MINUTES), timeZone);
   const endDate = dateValueInTimeZone(addMinutes(now, 1440), timeZone);
-  const [calendarResult, logsResult] = await Promise.all([
-    supabase
-      .from("content_calendar")
-      .select("id, user_id, title, platform, scheduled_date, scheduled_time, status")
-      .in("user_id", activeUserIds)
-      .gte("scheduled_date", startDate)
-      .lte("scheduled_date", endDate)
-      .neq("status", "Posted"),
-    supabase
-      .from("notification_logs")
-      .select("related_id, scheduled_for")
-      .in("user_id", activeUserIds)
-      .eq("notification_type", "calendar_reminder"),
-  ]);
+  const { data: calendarRows, error: calendarError } = await supabase
+    .from("content_calendar")
+    .select("id, user_id, title, platform, scheduled_date, scheduled_time, status")
+    .in("user_id", activeUserIds)
+    .gte("scheduled_date", startDate)
+    .lte("scheduled_date", endDate);
 
-  if (calendarResult.error || logsResult.error) {
-    console.error(
-      "Notification reminder data lookup failed:",
-      calendarResult.error?.message ?? logsResult.error?.message,
-    );
+  if (calendarError) {
+    console.error("Notification reminder data lookup failed:", calendarError.message);
     return { ok: false as const, error: "Reminder data could not be loaded" };
   }
 
@@ -184,12 +144,6 @@ export async function checkCalendarReminders({
     subscriptionsByUser.set(subscription.user_id, current);
   });
 
-  const loggedReminders = new Set(
-    ((logsResult.data ?? []) as NotificationLog[])
-      .filter((log) => log.related_id && log.scheduled_for)
-      .map((log) => logKey(log.related_id!, log.scheduled_for!)),
-  );
-
   let checked = 0;
   let sent = 0;
   let skippedDuplicates = 0;
@@ -200,13 +154,9 @@ export async function checkCalendarReminders({
   for (const preference of activePreferences) {
     const reminderMinutes = preference.reminder_minutes_before ?? 60;
     const userSubscriptions = subscriptionsByUser.get(preference.user_id) ?? [];
-
-    if (userSubscriptions.length === 0) {
-      continue;
-    }
-
-    const userEntries = ((calendarResult.data ?? []) as CalendarEntry[]).filter(
-      (entry) => entry.user_id === preference.user_id,
+    const userEntries = ((calendarRows ?? []) as CalendarEntry[]).filter(
+      (entry) =>
+        entry.user_id === preference.user_id && isCalendarEntryEligible(entry.status),
     );
 
     for (const entry of userEntries) {
@@ -218,13 +168,14 @@ export async function checkCalendarReminders({
       );
 
       if (!reminder || reminder.scheduledAt <= now) {
+        if (reminder?.scheduledAt && reminder.scheduledAt <= now) pastReminderCount += 1;
         continue;
       }
 
       upcoming += 1;
 
       if (
-        !isDueReminder({
+        !isReminderDue({
           now,
           reminderAt: reminder.reminderAt,
           reminderMinutes,
@@ -241,43 +192,86 @@ export async function checkCalendarReminders({
       due += 1;
 
       const scheduledFor = reminder.scheduledAt.toISOString();
+      const claimToken = crypto.randomUUID();
+      const { data: claimRows, error: claimError } = await supabase.rpc(
+        "claim_calendar_reminder",
+        {
+          p_user_id: preference.user_id,
+          p_related_id: entry.id,
+          p_scheduled_for: scheduledFor,
+          p_claim_token: claimToken,
+          p_max_attempts: MAX_REMINDER_ATTEMPTS,
+          p_stale_after_seconds: STALE_REMINDER_CLAIM_SECONDS,
+        },
+      );
 
-      if (loggedReminders.has(logKey(entry.id, scheduledFor))) {
+      if (claimError) {
+        console.error("Reminder claim failed:", claimError.message);
+        return { ok: false as const, error: "Reminder delivery could not be claimed" };
+      }
+
+      const claim = ((claimRows ?? [])[0] ?? null) as ReminderClaim | null;
+
+      if (!claim?.claimed || !claim.log_id) {
         skippedDuplicates += 1;
         continue;
       }
 
-      const results = await Promise.allSettled(
-        userSubscriptions.map((subscription) =>
-          sendWebPushNotification(subscription, {
-            title: "Upcoming post reminder",
-            body: `${entry.platform ?? "Your"} post is planned for ${entry.scheduled_time?.slice(0, 5) ?? "soon"}.`,
-            url: "/calendar",
-          }),
-        ),
-      );
+      const delivery = await deliverReminderToSubscriptions({
+        subscriptions: userSubscriptions,
+        payload: {
+          title: "Upcoming post reminder",
+          body: `${entry.platform ?? "Your"} post is planned for ${entry.scheduled_time?.slice(0, 5) ?? "soon"}.`,
+          url: "/calendar",
+        },
+        send: sendWebPushNotification,
+        disable: async (subscriptionId) => {
+          const { error } = await supabase
+            .from("push_subscriptions")
+            .update({ enabled: false, updated_at: new Date().toISOString() })
+            .eq("id", subscriptionId)
+            .eq("user_id", preference.user_id);
 
-      const sentToAnyDevice = results.some(
-        (result) => result.status === "fulfilled" && result.value.ok,
-      );
-      const status = sentToAnyDevice ? "sent" : "failed";
-
-      const { error: logError } = await supabase.from("notification_logs").insert({
-        user_id: preference.user_id,
-        notification_type: "calendar_reminder",
-        related_table: "content_calendar",
-        related_id: entry.id,
-        scheduled_for: scheduledFor,
-        status,
+          if (error) console.error("Invalid push subscription could not be disabled.");
+        },
       });
 
-      if (logError && logError.code !== "23505") {
-        console.error("Notification reminder log insert failed:", logError.message);
+      const sentToAnyDevice = delivery.sentCount > 0;
+      const completedAt = new Date();
+      const nextRetryAt = addMinutes(completedAt, REMINDER_RETRY_DELAY_MINUTES);
+      const { error: updateError } = await supabase
+        .from("notification_logs")
+        .update(
+          sentToAnyDevice
+            ? {
+                status: "sent",
+                sent_at: completedAt.toISOString(),
+                claimed_at: null,
+                claim_token: null,
+                next_retry_at: null,
+                last_error: null,
+              }
+            : {
+                status: "failed",
+                sent_at: null,
+                claimed_at: null,
+                claim_token: null,
+                next_retry_at: nextRetryAt.toISOString(),
+                last_error: delivery.missingConfig
+                  ? "missing_push_configuration"
+                  : delivery.invalidCount === userSubscriptions.length
+                    ? "no_valid_devices"
+                    : "push_delivery_failed",
+              },
+        )
+        .eq("id", claim.log_id)
+        .eq("claim_token", claimToken);
+
+      if (updateError) {
+        console.error("Reminder delivery log update failed:", updateError.message);
       }
 
-      if (sentToAnyDevice) {
-        sent += 1;
-      }
+      if (sentToAnyDevice) sent += 1;
     }
   }
 

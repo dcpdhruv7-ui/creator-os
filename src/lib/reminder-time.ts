@@ -2,8 +2,45 @@ export const DEFAULT_REMINDER_TIME_ZONE = "Asia/Kolkata";
 export const REMINDER_LOOKBACK_MINUTES = 20;
 export const REMINDER_SOON_WINDOW_MINUTES = 15;
 
+const inactiveCalendarStatuses = new Set([
+  "posted",
+  "deleted",
+  "cancelled",
+  "canceled",
+]);
+
 export function addMinutes(date: Date, minutes: number) {
   return new Date(date.getTime() + minutes * 60 * 1000);
+}
+
+export function isCalendarEntryEligible(status: string | null) {
+  return !inactiveCalendarStatuses.has(status?.trim().toLowerCase() ?? "");
+}
+
+export function isReminderDue({
+  now,
+  reminderAt,
+  reminderMinutes,
+  scheduledAt,
+}: {
+  now: Date;
+  reminderAt: Date;
+  reminderMinutes: number;
+  scheduledAt: Date;
+}) {
+  if (scheduledAt <= now) return false;
+
+  const lookbackStart = addMinutes(now, -REMINDER_LOOKBACK_MINUTES);
+  const normalDue = reminderAt <= now && reminderAt >= lookbackStart;
+  const soonWindowMinutes = Math.min(
+    Math.max(reminderMinutes, REMINDER_SOON_WINDOW_MINUTES),
+    60,
+  );
+  const soonWindowEnd = addMinutes(now, soonWindowMinutes);
+  const reminderAlreadyPassed = reminderAt < lookbackStart;
+  const comingUpSoon = reminderAlreadyPassed && scheduledAt <= soonWindowEnd;
+
+  return normalDue || comingUpSoon;
 }
 
 export function dateValueInTimeZone(date: Date, timeZone = DEFAULT_REMINDER_TIME_ZONE) {

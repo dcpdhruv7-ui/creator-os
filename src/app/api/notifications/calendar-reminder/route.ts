@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { deliverReminderToSubscriptions } from "@/lib/reminder-delivery";
 import { sendWebPushNotification, type PushSubscriptionRow } from "@/lib/notifications";
 import { createClient } from "@/lib/supabase/server";
 
@@ -81,33 +82,31 @@ export async function POST(request: Request) {
   const entry = entryResult.data;
   const timeLabel = entry.scheduled_time?.slice(0, 5) ?? "soon";
   const platformLabel = entry.platform ?? "Creator OS";
-  const results = await Promise.allSettled(
-    subscriptions.map((subscription) =>
-      sendWebPushNotification(subscription, {
+  const delivery = await deliverReminderToSubscriptions({
+    subscriptions,
+    payload: {
         title: "Creator OS reminder",
         body: `${platformLabel} post: ${entry.title} is scheduled for ${timeLabel}.`,
         url: "/calendar",
-      }),
-    ),
-  );
-  const hasMissingConfig = results.some(
-    (result) =>
-      result.status === "fulfilled" &&
-      !result.value.ok &&
-      result.value.reason === "missing_config",
-  );
-  const sentCount = results.filter(
-    (result) => result.status === "fulfilled" && result.value.ok,
-  ).length;
+    },
+    send: sendWebPushNotification,
+    disable: async (subscriptionId) => {
+      await supabase
+        .from("push_subscriptions")
+        .update({ enabled: false, updated_at: new Date().toISOString() })
+        .eq("id", subscriptionId)
+        .eq("user_id", user.id);
+    },
+  });
 
-  if (hasMissingConfig) {
+  if (delivery.missingConfig) {
     return NextResponse.json(
       { error: "Server notification keys are missing." },
       { status: 500 },
     );
   }
 
-  if (sentCount === 0) {
+  if (delivery.sentCount === 0) {
     return NextResponse.json(
       { error: "We could not send this reminder." },
       { status: 500 },
@@ -116,7 +115,8 @@ export async function POST(request: Request) {
 
   return NextResponse.json({
     ok: true,
-    sentCount,
+    sentCount: delivery.sentCount,
+    sentAt: new Date().toISOString(),
     message: "Reminder sent to your enabled devices.",
   });
 }

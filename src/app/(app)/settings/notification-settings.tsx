@@ -42,6 +42,16 @@ type ReminderDiagnostics = {
   nextReminderTime: string | null;
   lastReminderLogStatus: string | null;
   lastReminderSent: string | null;
+  schedulerStatus: "active" | "delayed" | "never_run" | "last_run_failed";
+  schedulerStatusLabel: string;
+  schedulerSetupReady: boolean;
+  lastSchedulerCheck: string | null;
+  lastSuccessfulSchedulerCheck: string | null;
+  lastSchedulerResult: string | null;
+  schedulerCheckedCount: number;
+  schedulerSentCount: number;
+  environment: Record<string, "Configured" | "Missing">;
+  timeZone: string;
 };
 
 const defaultPreferences: NotificationPreferences = {
@@ -346,6 +356,18 @@ export function NotificationSettings({
     });
   }
 
+  function formatDateTime(value: string | null) {
+    if (!value) return "Never";
+
+    return new Date(value).toLocaleString(undefined, {
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+  }
+
   return (
     <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
       <Card className="border-emerald-300/20">
@@ -431,6 +453,10 @@ export function NotificationSettings({
               can have multiple enabled devices, but each browser creates its own notification
               connection.
             </p>
+            <p className="mt-2 text-xs leading-5 text-zinc-600">
+              Check reminders now is a manual diagnostic. Automatic delivery is handled separately
+              by the secure background scheduler.
+            </p>
           </div>
 
           {message ? (
@@ -462,6 +488,53 @@ export function NotificationSettings({
               </Button>
             </div>
             <dl className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-md border border-white/10 bg-white/[0.025] p-3">
+                <dt className="text-xs text-zinc-500">Background reminder scheduler</dt>
+                <dd
+                  className={cn(
+                    "mt-1 text-sm font-medium",
+                    diagnostics?.schedulerStatus === "active"
+                      ? "text-emerald-200"
+                      : "text-amber-200",
+                  )}
+                >
+                  {diagnostics?.schedulerStatusLabel ?? "Not checked"}
+                </dd>
+              </div>
+              <div className="rounded-md border border-white/10 bg-white/[0.025] p-3">
+                <dt className="text-xs text-zinc-500">Last scheduler check</dt>
+                <dd className="mt-1 text-sm font-medium text-zinc-100">
+                  {diagnostics?.lastSchedulerCheck
+                    ? formatDateTime(diagnostics.lastSchedulerCheck)
+                    : "Never"}
+                </dd>
+              </div>
+              <div className="rounded-md border border-white/10 bg-white/[0.025] p-3">
+                <dt className="text-xs text-zinc-500">Last successful check</dt>
+                <dd className="mt-1 text-sm font-medium text-zinc-100">
+                  {diagnostics?.lastSuccessfulSchedulerCheck
+                    ? formatDateTime(diagnostics.lastSuccessfulSchedulerCheck)
+                    : "Never"}
+                </dd>
+              </div>
+              <div className="rounded-md border border-white/10 bg-white/[0.025] p-3">
+                <dt className="text-xs text-zinc-500">Last scheduler result</dt>
+                <dd className="mt-1 text-sm font-medium capitalize text-zinc-100">
+                  {diagnostics?.lastSchedulerResult ?? "No run recorded"}
+                </dd>
+              </div>
+              <div className="rounded-md border border-white/10 bg-white/[0.025] p-3">
+                <dt className="text-xs text-zinc-500">Posts checked</dt>
+                <dd className="mt-1 text-sm font-medium text-zinc-100">
+                  {diagnostics?.schedulerCheckedCount ?? "Not checked"}
+                </dd>
+              </div>
+              <div className="rounded-md border border-white/10 bg-white/[0.025] p-3">
+                <dt className="text-xs text-zinc-500">Reminders sent</dt>
+                <dd className="mt-1 text-sm font-medium text-zinc-100">
+                  {diagnostics?.schedulerSentCount ?? "Not checked"}
+                </dd>
+              </div>
               <div className="rounded-md border border-white/10 bg-white/[0.025] p-3">
                 <dt className="text-xs text-zinc-500">This device</dt>
                 <dd className="mt-1 text-sm font-medium text-zinc-100">
@@ -514,6 +587,31 @@ export function NotificationSettings({
                 </dd>
               </div>
             </dl>
+            {diagnostics && !diagnostics.schedulerSetupReady ? (
+              <p className="mt-4 rounded-md border border-amber-300/20 bg-amber-400/[0.06] p-3 text-sm text-amber-100">
+                Scheduler database setup is not complete yet. Apply the automatic reminders
+                migration, then configure the Supabase Cron job.
+              </p>
+            ) : null}
+            {diagnostics?.environment ? (
+              <div className="mt-4 rounded-md border border-white/10 bg-white/[0.025] p-3">
+                <p className="text-xs font-medium uppercase tracking-[0.16em] text-zinc-500">
+                  Server configuration
+                </p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {Object.entries(diagnostics.environment).map(([key, value]) => (
+                    <div className="flex items-center justify-between gap-3 text-xs" key={key}>
+                      <span className="truncate text-zinc-500">{key}</span>
+                      <span
+                        className={value === "Configured" ? "text-emerald-200" : "text-amber-200"}
+                      >
+                        {value}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
@@ -663,9 +761,8 @@ export function NotificationSettings({
               like, comment, scrape, or connect to social accounts.
             </p>
             <p className="rounded-lg border border-emerald-300/15 bg-emerald-400/[0.06] p-3 text-emerald-100">
-              Automatic background reminders require a scheduled cron runner. On the current
-              Vercel plan, use Send reminder now or Check reminders now. A production reminder
-              runner can be added later.
+              Automatic reminders use a secure background scheduler. Check reminders now runs the
+              same reminder check manually for diagnostics; it is not required for normal delivery.
             </p>
           </div>
         </CardContent>
