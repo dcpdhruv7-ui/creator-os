@@ -663,8 +663,9 @@ export function NotificationSettings({
               like, comment, scrape, or connect to social accounts.
             </p>
             <p className="rounded-lg border border-emerald-300/15 bg-emerald-400/[0.06] p-3 text-emerald-100">
-              To use reminders in production, add VAPID keys and schedule the secure cron endpoint
-              in Vercel.
+              Automatic background reminders require a scheduled cron runner. On the current
+              Vercel plan, use Send reminder now or Check reminders now. A production reminder
+              runner can be added later.
             </p>
           </div>
         </CardContent>
