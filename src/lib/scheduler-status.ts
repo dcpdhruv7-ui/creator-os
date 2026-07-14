@@ -7,6 +7,7 @@ export type SchedulerRun = {
   due_count?: number | null;
   skipped_duplicate_count?: number | null;
   upcoming_count?: number | null;
+  error_message?: string | null;
 };
 
 export type SchedulerHealth = "active" | "delayed" | "never_run" | "last_run_failed";

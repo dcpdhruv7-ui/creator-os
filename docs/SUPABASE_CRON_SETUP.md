@@ -22,9 +22,8 @@ In Supabase, open **Database > Extensions** and enable:
 
 - `pg_cron` (also shown as the Cron integration)
 - `pg_net`
-- `vault`, if it is not already available
 
-These can also be enabled by the placeholder SQL template.
+These can also be enabled by the placeholder SQL template. Vault is not required.
 
 ## 2. Create A Secret
 
@@ -34,14 +33,14 @@ Generate a long random value locally. One Windows PowerShell option is:
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-Add the generated value to Vercel as `CRON_SECRET` for Production. Put the same value into Supabase Vault when running the template. Do not add it to `.env.example`, a migration, GitHub, or chat.
+Add the generated value to Vercel as `CRON_SECRET` for Production. Use the same value only in the private SQL copy you run in Supabase. Do not add the filled SQL to `.env.example`, a migration, GitHub, or chat.
 
 ## 3. Create The Minute Job
 
 Open `supabase/templates/supabase_cron_calendar_reminders.sql`, replace only:
 
 ```text
-<PASTE_THE_SAME_CRON_SECRET_CONFIGURED_IN_VERCEL>
+YOUR_CRON_SECRET_HERE
 ```
 
 Then run it once in **Supabase > SQL Editor**. It creates a job named `creator-os-calendar-reminders` with schedule `* * * * *` and sends:
@@ -51,7 +50,7 @@ POST https://creator-os-ten-phi.vercel.app/api/notifications/cron
 Authorization: Bearer <CRON_SECRET>
 ```
 
-The secret is read from Supabase Vault at execution time and is not placed in the URL.
+The secret is stored in the private cron command inside your Supabase project and is not placed in the request URL. Limit access to the SQL Editor and `cron.job`, and never commit the filled template.
 
 If the job name already exists, remove it before creating it again:
 

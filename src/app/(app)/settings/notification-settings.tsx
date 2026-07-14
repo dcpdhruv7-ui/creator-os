@@ -1,15 +1,25 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Bell, BellOff, CalendarDays, LoaderCircle, Send, Smartphone } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Bell,
+  BellOff,
+  CalendarDays,
+  LoaderCircle,
+  RefreshCw,
+  Send,
+  Smartphone,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   enablePushNotifications,
   getActiveSubscription,
+  getCurrentBrowserLabel,
   getNotificationPermission,
   isWebPushSupported,
+  repairPushNotifications,
 } from "@/lib/notification-client";
 import { cn } from "@/lib/utils";
 
@@ -38,18 +48,29 @@ type ReminderDiagnostics = {
   calendarRemindersEnabled: boolean;
   reminderMinutesBefore: number;
   activeDevicesCount: number;
+  currentDeviceEnabled: boolean | null;
   upcomingCalendarPostsCount: number;
   nextReminderTime: string | null;
   lastReminderLogStatus: string | null;
   lastReminderSent: string | null;
   schedulerStatus: "active" | "delayed" | "never_run" | "last_run_failed";
   schedulerStatusLabel: string;
+  schedulerDisplayStatus: string;
+  schedulerDiagnosis: string;
   schedulerSetupReady: boolean;
   lastSchedulerCheck: string | null;
   lastSuccessfulSchedulerCheck: string | null;
   lastSchedulerResult: string | null;
   schedulerCheckedCount: number;
   schedulerSentCount: number;
+  lastSuccessfulReminder: string | null;
+  failedReminderCount: number;
+  retryingReminderCount: number;
+  vapidPublicKeyConfigured: boolean;
+  vapidPrivateKeyConfigured: boolean;
+  vapidSubjectConfigured: boolean;
+  serviceRoleConfigured: boolean;
+  cronSecretConfigured: boolean;
   environment: Record<string, "Configured" | "Missing">;
   timeZone: string;
 };
@@ -79,6 +100,7 @@ export function NotificationSettings({
   );
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
+  const [isRepairing, setIsRepairing] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [isTestingAll, setIsTestingAll] = useState(false);
   const [isCheckingReminders, setIsCheckingReminders] = useState(false);
@@ -90,33 +112,64 @@ export function NotificationSettings({
   const [setupNeeded, setSetupNeeded] = useState(false);
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error" | "info">("info");
+  const [browserLabel] = useState(() => getCurrentBrowserLabel());
 
-  const statusLabel = useMemo(() => {
-    if (!isSupported) return "Not supported in this browser";
-    if (!pushConfigured) return "Notification keys not configured";
-    if (setupNeeded) return "Database setup needed";
-    if (permission === "denied") return "Blocked in browser settings";
+  const permissionLabel =
+    permission === "granted" ? "Granted" : permission === "denied" ? "Blocked" : "Not requested";
+  const deviceSubscriptionLabel = useMemo(() => {
+    if (!isSupported) return "Not supported";
+    if (isSubscribed && diagnostics?.currentDeviceEnabled === false) return "Stale";
     if (isSubscribed) return "Enabled";
-    if (permission === "granted") return "Allowed, not enabled";
     return "Not enabled";
-  }, [isSupported, isSubscribed, permission, pushConfigured, setupNeeded]);
+  }, [diagnostics?.currentDeviceEnabled, isSubscribed, isSupported]);
+  const serverConfiguration = useMemo(
+    () => [
+      ["NEXT_PUBLIC_VAPID_PUBLIC_KEY", diagnostics?.vapidPublicKeyConfigured],
+      ["VAPID_PRIVATE_KEY", diagnostics?.vapidPrivateKeyConfigured],
+      ["VAPID_SUBJECT", diagnostics?.vapidSubjectConfigured],
+      ["SUPABASE_SERVICE_ROLE_KEY", diagnostics?.serviceRoleConfigured],
+      ["CRON_SECRET", diagnostics?.cronSecretConfigured],
+    ] as const,
+    [diagnostics],
+  );
+  const serverPushKeysMissing = serverConfiguration.some(([, configured]) => configured === false);
+
+  const refreshDiagnostics = useCallback(async (endpoint: string) => {
+    try {
+      const response = await fetch("/api/notifications/diagnostics", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ endpoint }),
+      });
+      const data = await response.json();
+
+      if (response.ok) setDiagnostics(data);
+    } catch {
+      setDiagnostics(null);
+    }
+  }, []);
 
   useEffect(() => {
     if (!isSupported) {
+      Promise.resolve().then(() => refreshDiagnostics(""));
       return;
     }
 
     getActiveSubscription()
       .then((subscription) => {
         setIsSubscribed(Boolean(subscription));
-        setCurrentEndpoint(subscription?.endpoint ?? "");
+        const endpoint = subscription?.endpoint ?? "";
+        setCurrentEndpoint(endpoint);
+        void refreshDiagnostics(endpoint);
       })
-      .catch(() => setIsSubscribed(false));
-  }, [isSupported]);
+      .catch(() => {
+        setIsSubscribed(false);
+        void refreshDiagnostics("");
+      });
+  }, [isSupported, refreshDiagnostics]);
 
   useEffect(() => {
     refreshDevices();
-    refreshDiagnostics();
 
     fetch("/api/notifications/preferences")
       .then((response) => response.json())
@@ -143,19 +196,6 @@ export function NotificationSettings({
       }
     } catch {
       setDevices([]);
-    }
-  }
-
-  async function refreshDiagnostics() {
-    try {
-      const response = await fetch("/api/notifications/diagnostics");
-      const data = await response.json();
-
-      if (response.ok) {
-        setDiagnostics(data);
-      }
-    } catch {
-      setDiagnostics(null);
     }
   }
 
@@ -186,7 +226,7 @@ export function NotificationSettings({
 
       showMessage("Notification preferences saved.", "success");
       setSetupNeeded(false);
-      await refreshDiagnostics();
+      await refreshDiagnostics(currentEndpoint);
     } catch (error) {
       showMessage(error instanceof Error ? error.message : "Preferences could not be saved.", "error");
     } finally {
@@ -201,7 +241,7 @@ export function NotificationSettings({
     }
 
     if (!pushConfigured || !vapidPublicKey) {
-      showMessage("Push notifications are not configured yet.", "error");
+      showMessage("Server push keys are missing in production.", "error");
       return;
     }
 
@@ -219,12 +259,39 @@ export function NotificationSettings({
       setIsSubscribed(true);
       setCurrentEndpoint(result.endpoint);
       await refreshDevices();
-      await refreshDiagnostics();
+      await refreshDiagnostics(result.endpoint);
       showMessage("Notifications enabled for this device.", "success");
     } catch (error) {
       showMessage(error instanceof Error ? error.message : "Notifications could not be enabled.", "error");
     } finally {
       setIsBusy(false);
+    }
+  }
+
+  async function repairThisDevice() {
+    if (permission === "denied") {
+      showMessage("Notifications are blocked in this browser.", "error");
+      return;
+    }
+
+    setIsRepairing(true);
+
+    try {
+      const result = await repairPushNotifications({ pushConfigured, vapidPublicKey });
+      setPermission(getNotificationPermission());
+
+      if (result.status !== "enabled" && result.status !== "already-enabled") {
+        showMessage(result.message, "error");
+        return;
+      }
+
+      setIsSubscribed(true);
+      setCurrentEndpoint(result.endpoint);
+      await refreshDevices();
+      await refreshDiagnostics(result.endpoint);
+      showMessage("This device was repaired and subscribed again.", "success");
+    } finally {
+      setIsRepairing(false);
     }
   }
 
@@ -248,7 +315,7 @@ export function NotificationSettings({
       setIsSubscribed(false);
       setCurrentEndpoint("");
       await refreshDevices();
-      await refreshDiagnostics();
+      await refreshDiagnostics("");
       showMessage("Notifications disabled for this device.", "success");
     } catch (error) {
       showMessage(error instanceof Error ? error.message : "Notifications could not be disabled.", "error");
@@ -305,6 +372,19 @@ export function NotificationSettings({
   }
 
   async function checkUpcomingReminders() {
+    const currentPermission = getNotificationPermission();
+    setPermission(currentPermission);
+
+    if (currentPermission === "denied") {
+      showMessage("Notifications are blocked in this browser.", "error");
+      return;
+    }
+
+    if (serverPushKeysMissing) {
+      showMessage("Server push keys are missing.", "error");
+      return;
+    }
+
     setIsCheckingReminders(true);
 
     try {
@@ -322,7 +402,9 @@ export function NotificationSettings({
       const upcoming = Number(data.upcoming ?? 0);
       const pastReminderCount = Number(data.pastReminderCount ?? 0);
 
-      if (data.reason === "no_devices") {
+      if (data.message) {
+        showMessage(data.message, sent > 0 ? "success" : "info");
+      } else if (data.reason === "no_devices") {
         showMessage("No enabled devices found.", "info");
       } else if (data.reason === "calendar_off") {
         showMessage("Calendar reminders are off.", "info");
@@ -338,7 +420,7 @@ export function NotificationSettings({
       } else {
         showMessage("No upcoming scheduled posts found.", "info");
       }
-      await refreshDiagnostics();
+      await refreshDiagnostics(currentEndpoint);
     } catch (error) {
       showMessage(error instanceof Error ? error.message : "Reminder check could not run.", "error");
     } finally {
@@ -390,14 +472,38 @@ export function NotificationSettings({
         </CardHeader>
         <CardContent className="space-y-5">
           <div className="rounded-lg border border-white/10 bg-white/[0.025] p-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">
-                  Status
-                </p>
-                <p className="mt-1 text-lg font-semibold text-white">{statusLabel}</p>
+            <div>
+              <p className="text-sm font-semibold text-white">Device notification permission</p>
+              <p className="mt-1 text-sm text-zinc-500">
+                This status applies only to the browser and device you are using now.
+              </p>
+            </div>
+            <dl className="mt-4 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-md border border-white/10 bg-zinc-950/70 p-3">
+                <dt className="text-xs text-zinc-500">Browser permission</dt>
+                <dd className="mt-1 text-sm font-medium text-zinc-100">{permissionLabel}</dd>
               </div>
-              <div className="flex flex-wrap gap-2">
+              <div className="rounded-md border border-white/10 bg-zinc-950/70 p-3">
+                <dt className="text-xs text-zinc-500">Device subscription</dt>
+                <dd
+                  className={cn(
+                    "mt-1 text-sm font-medium",
+                    deviceSubscriptionLabel === "Enabled"
+                      ? "text-emerald-200"
+                      : deviceSubscriptionLabel === "Stale"
+                        ? "text-amber-200"
+                        : "text-zinc-100",
+                  )}
+                >
+                  {deviceSubscriptionLabel}
+                </dd>
+              </div>
+              <div className="rounded-md border border-white/10 bg-zinc-950/70 p-3">
+                <dt className="text-xs text-zinc-500">Current browser</dt>
+                <dd className="mt-1 text-sm font-medium text-zinc-100">{browserLabel}</dd>
+              </div>
+            </dl>
+            <div className="mt-4 flex flex-wrap gap-2">
                 <Button
                   disabled={isBusy || isSubscribed || !isSupported || !pushConfigured}
                   onClick={enableNotifications}
@@ -407,13 +513,27 @@ export function NotificationSettings({
                   Enable on this device
                 </Button>
                 <Button
-                  disabled={isTesting || !isSubscribed}
+                  disabled={
+                    isTesting ||
+                    !isSubscribed ||
+                    permission === "denied" ||
+                    diagnostics?.currentDeviceEnabled === false
+                  }
                   onClick={sendTestNotification}
                   type="button"
                   variant="secondary"
                 >
                   {isTesting ? <LoaderCircle className="animate-spin" /> : <Send />}
                   Send test to this device
+                </Button>
+                <Button
+                  disabled={isRepairing || isBusy || permission !== "granted" || !pushConfigured}
+                  onClick={repairThisDevice}
+                  type="button"
+                  variant="secondary"
+                >
+                  {isRepairing ? <LoaderCircle className="animate-spin" /> : <RefreshCw />}
+                  Repair this device
                 </Button>
                 <Button
                   disabled={isTestingAll || devices.filter((device) => device.enabled).length === 0}
@@ -446,18 +566,53 @@ export function NotificationSettings({
                   <BellOff />
                   Disable
                 </Button>
-              </div>
             </div>
             <p className="mt-4 text-sm leading-6 text-zinc-500">
-              Browser notifications only work after you allow them on this device. The same account
-              can have multiple enabled devices, but each browser creates its own notification
-              connection.
+              Notifications are per browser and per device. Enabling them in one browser does not
+              enable them in Chrome or on your phone.
             </p>
             <p className="mt-2 text-xs leading-5 text-zinc-600">
               Check reminders now is a manual diagnostic. Automatic delivery is handled separately
               by the secure background scheduler.
             </p>
           </div>
+
+          {permission === "denied" ? (
+            <div className="rounded-lg border border-red-400/25 bg-red-400/[0.08] p-4 text-sm text-red-100">
+              <p className="font-medium">Notifications are blocked in this browser.</p>
+              <p className="mt-1 leading-6 text-red-100/80">
+                Open site settings and allow notifications for Creator OS.
+              </p>
+              <ol className="mt-3 list-decimal space-y-1 pl-5 text-red-100/80">
+                <li>Click the lock or settings icon near the URL.</li>
+                <li>Open Site settings.</li>
+                <li>Set Notifications to Allow.</li>
+                <li>Refresh this page.</li>
+                <li>Click Enable on this device again.</li>
+              </ol>
+            </div>
+          ) : null}
+
+          {serverPushKeysMissing ? (
+            <div className="rounded-lg border border-red-400/25 bg-red-400/[0.08] p-4 text-sm text-red-100">
+              Push notifications are not configured in production. Add the missing Vercel
+              environment variables and redeploy.
+            </div>
+          ) : null}
+
+          {permission === "granted" && !isSubscribed ? (
+            <div className="rounded-lg border border-amber-300/20 bg-amber-400/[0.06] p-4 text-sm text-amber-100">
+              Notifications are allowed, but this browser is not subscribed yet. Click Enable on
+              this device.
+            </div>
+          ) : null}
+
+          {setupNeeded ? (
+            <div className="rounded-lg border border-amber-300/20 bg-amber-400/[0.06] p-4 text-sm text-amber-100">
+              Notification database setup is incomplete. Apply the notification migrations before
+              enabling this device.
+            </div>
+          ) : null}
 
           {message ? (
             <div
@@ -476,14 +631,49 @@ export function NotificationSettings({
           ) : null}
 
           <div className="rounded-lg border border-white/10 bg-zinc-950/70 p-4">
+            <div>
+              <p className="text-sm font-semibold text-white">Server push configuration</p>
+              <p className="mt-1 text-sm text-zinc-500">
+                Production readiness only. Private values are never displayed.
+              </p>
+            </div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              {serverConfiguration.map(([key, configured]) => (
+                <div
+                  className="flex items-center justify-between gap-3 rounded-md border border-white/10 bg-white/[0.025] p-3 text-xs"
+                  key={key}
+                >
+                  <span className="min-w-0 break-all text-zinc-500">{key}</span>
+                  <span
+                    className={
+                      configured === true
+                        ? "text-emerald-200"
+                        : configured === false
+                          ? "text-red-200"
+                          : "text-zinc-500"
+                    }
+                  >
+                    {configured === true ? "Configured" : configured === false ? "Missing" : "Checking"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-white/10 bg-zinc-950/70 p-4">
             <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
               <div>
-                <p className="text-sm font-semibold text-white">Reminder diagnostics</p>
+                <p className="text-sm font-semibold text-white">Background scheduler</p>
                 <p className="mt-1 text-sm text-zinc-500">
                   A safe check of your reminder setup without exposing any keys.
                 </p>
               </div>
-              <Button onClick={refreshDiagnostics} size="sm" type="button" variant="secondary">
+              <Button
+                onClick={() => refreshDiagnostics(currentEndpoint)}
+                size="sm"
+                type="button"
+                variant="secondary"
+              >
                 Refresh
               </Button>
             </div>
@@ -498,7 +688,7 @@ export function NotificationSettings({
                       : "text-amber-200",
                   )}
                 >
-                  {diagnostics?.schedulerStatusLabel ?? "Not checked"}
+                  {diagnostics?.schedulerDisplayStatus ?? "Not checked"}
                 </dd>
               </div>
               <div className="rounded-md border border-white/10 bg-white/[0.025] p-3">
@@ -533,12 +723,6 @@ export function NotificationSettings({
                 <dt className="text-xs text-zinc-500">Reminders sent</dt>
                 <dd className="mt-1 text-sm font-medium text-zinc-100">
                   {diagnostics?.schedulerSentCount ?? "Not checked"}
-                </dd>
-              </div>
-              <div className="rounded-md border border-white/10 bg-white/[0.025] p-3">
-                <dt className="text-xs text-zinc-500">This device</dt>
-                <dd className="mt-1 text-sm font-medium text-zinc-100">
-                  {isSubscribed ? "Notifications enabled" : "Notifications not enabled"}
                 </dd>
               </div>
               <div className="rounded-md border border-white/10 bg-white/[0.025] p-3">
@@ -586,31 +770,33 @@ export function NotificationSettings({
                     : "No reminder log yet"}
                 </dd>
               </div>
+              <div className="rounded-md border border-white/10 bg-white/[0.025] p-3">
+                <dt className="text-xs text-zinc-500">Last successful reminder</dt>
+                <dd className="mt-1 text-sm font-medium text-zinc-100">
+                  {diagnostics?.lastSuccessfulReminder
+                    ? formatDateTime(diagnostics.lastSuccessfulReminder)
+                    : "None sent yet"}
+                </dd>
+              </div>
+              <div className="rounded-md border border-white/10 bg-white/[0.025] p-3">
+                <dt className="text-xs text-zinc-500">Failures / retries</dt>
+                <dd className="mt-1 text-sm font-medium text-zinc-100">
+                  {diagnostics
+                    ? `${diagnostics.failedReminderCount} failed, ${diagnostics.retryingReminderCount} retrying`
+                    : "Not checked"}
+                </dd>
+              </div>
             </dl>
+            {diagnostics?.schedulerDiagnosis ? (
+              <p className="mt-4 rounded-md border border-white/10 bg-white/[0.025] p-3 text-sm leading-6 text-zinc-300">
+                {diagnostics.schedulerDiagnosis}
+              </p>
+            ) : null}
             {diagnostics && !diagnostics.schedulerSetupReady ? (
               <p className="mt-4 rounded-md border border-amber-300/20 bg-amber-400/[0.06] p-3 text-sm text-amber-100">
                 Scheduler database setup is not complete yet. Apply the automatic reminders
                 migration, then configure the Supabase Cron job.
               </p>
-            ) : null}
-            {diagnostics?.environment ? (
-              <div className="mt-4 rounded-md border border-white/10 bg-white/[0.025] p-3">
-                <p className="text-xs font-medium uppercase tracking-[0.16em] text-zinc-500">
-                  Server configuration
-                </p>
-                <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                  {Object.entries(diagnostics.environment).map(([key, value]) => (
-                    <div className="flex items-center justify-between gap-3 text-xs" key={key}>
-                      <span className="truncate text-zinc-500">{key}</span>
-                      <span
-                        className={value === "Configured" ? "text-emerald-200" : "text-amber-200"}
-                      >
-                        {value}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
             ) : null}
           </div>
 
@@ -761,8 +947,8 @@ export function NotificationSettings({
               like, comment, scrape, or connect to social accounts.
             </p>
             <p className="rounded-lg border border-emerald-300/15 bg-emerald-400/[0.06] p-3 text-emerald-100">
-              Automatic reminders use a secure background scheduler. Check reminders now runs the
-              same reminder check manually for diagnostics; it is not required for normal delivery.
+              Automatic reminders require the Supabase scheduler to call the secure reminder
+              endpoint. Manual test notifications can work even before the scheduler is active.
             </p>
           </div>
         </CardContent>

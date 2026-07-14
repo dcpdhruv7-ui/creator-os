@@ -67,19 +67,6 @@ export function createCronHandler(overrides: Partial<CronDependencies> = {}) {
       return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     }
 
-    const missingEnvironment = dependencies.missingEnvironment();
-
-    if (missingEnvironment.length > 0) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "Automatic reminder server configuration is incomplete.",
-          missing: missingEnvironment,
-        },
-        { status: 503 },
-      );
-    }
-
     const supabase = dependencies.createAdmin();
 
     if (!supabase) {
@@ -105,6 +92,29 @@ export function createCronHandler(overrides: Partial<CronDependencies> = {}) {
     }
 
     const runId = runInsert.data.id as string;
+    const missingEnvironment = dependencies.missingEnvironment();
+
+    if (missingEnvironment.length > 0) {
+      const executedAt = dependencies.now().toISOString();
+      await supabase
+        .from("notification_scheduler_runs")
+        .update({
+          completed_at: executedAt,
+          status: "failed",
+          error_message: "server_configuration_missing",
+        })
+        .eq("id", runId);
+
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Automatic reminder server configuration is incomplete.",
+          missing: missingEnvironment,
+          executedAt,
+        },
+        { status: 503 },
+      );
+    }
 
     try {
       const result = await dependencies.checkReminders({ supabase });

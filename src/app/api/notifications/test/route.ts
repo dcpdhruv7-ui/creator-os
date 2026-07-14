@@ -71,7 +71,10 @@ export async function POST(request: Request) {
   ).length;
 
   if (sentCount === 0) {
-    return NextResponse.json({ error: "Push notifications are not configured yet" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Server push keys are missing or no enabled device accepted the notification." },
+      { status: 500 },
+    );
   }
 
   return NextResponse.json({ ok: true, sentCount });
